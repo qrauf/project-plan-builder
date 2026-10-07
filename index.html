@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Project Plan Builder</title>
+<style>
+  :root {
+    --bg: #f5f7f8; --surface: #ffffff; --text: #18211f; --muted: #5b6b69; --border: #dfe6e5;
+    --accent: #0f7f81; --accent-soft: #e2f1f1; --danger: #b42318; --warn: #b54708; --row-alt: #fafcfc;
+    --summary: #eef4f4;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0f1615; --surface: #172221; --text: #e5eceb; --muted: #9fb2b0; --border: #2a3a39;
+      --accent: #38b6b8; --accent-soft: #163536; --danger: #f97066; --warn: #fdb022; --row-alt: #1a2726;
+      --summary: #1d3030;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 "Segoe UI", system-ui, -apple-system, Arial, sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  header p { margin: 0; color: var(--muted); flex: 1; }
+  header .links { font-size: 13px; white-space: nowrap; }
+  header .links a { color: var(--accent); text-decoration: none; font-weight: 600; }
+  header .links a:hover { text-decoration: underline; }
+  main { max-width: 1400px; margin: 0 auto; padding: 20px 24px 60px; display: grid; gap: 18px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .step { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+  label { display: grid; gap: 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+  input, select { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input.bad { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
+  button { font: inherit; font-weight: 600; border-radius: 8px; padding: 7px 12px; border: 1px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { filter: brightness(1.08); color: #fff; }
+  button.icon { padding: 3px 7px; font-size: 13px; line-height: 1; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 4px 6px 4px 12px; font-weight: 600; }
+  .chip button { border: 0; background: transparent; color: inherit; padding: 0 6px; }
+  .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  .toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .toolbar .spacer { flex: 1; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+  table { border-collapse: collapse; width: 100%; min-width: 1250px; }
+  th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: middle; }
+  th { font-size: 12px; color: var(--muted); background: var(--bg); position: sticky; top: 0; white-space: nowrap; }
+  tr:nth-child(even) td { background: var(--row-alt); }
+  tr.summary td { background: var(--summary); font-weight: 700; }
+  td.id { color: var(--muted); width: 40px; text-align: right; }
+  td input, td select { width: 100%; padding: 5px 7px; }
+  td.name { min-width: 320px; }
+  td.name input { min-width: 260px; }
+  td select[data-f="resource"] { min-width: 150px; }
+  td.dur { text-align: right; white-space: nowrap; width: 70px; }
+  td.succ { color: var(--muted); font-size: 12px; min-width: 90px; }
+  td.ms { text-align: center; width: 50px; }
+  td.act { white-space: nowrap; width: 150px; }
+  .indent { display: inline-block; }
+  .msgs { margin-top: 12px; display: grid; gap: 4px; }
+  .msg { font-size: 13px; padding: 6px 10px; border-radius: 8px; }
+  .msg.err { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
+  .msg.warn { background: color-mix(in srgb, var(--warn) 12%, var(--surface)); color: var(--warn); }
+  .msg.ok { background: var(--accent-soft); color: var(--accent); }
+  .gantt { position: relative; overflow-x: auto; }
+  .g-row { display: grid; grid-template-columns: 260px 1fr; align-items: center; min-height: 26px; border-bottom: 1px dashed var(--border); }
+  .g-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 10px; font-size: 12px; }
+  .g-track { position: relative; height: 26px; min-width: 600px; }
+  .g-bar { position: absolute; top: 7px; height: 12px; border-radius: 4px; background: var(--accent); }
+  .g-bar.sum { background: var(--text); height: 6px; top: 10px; border-radius: 2px; }
+  .g-ms { position: absolute; top: 6px; width: 13px; height: 13px; background: var(--warn); transform: rotate(45deg); }
+  .g-deadline { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px dashed var(--danger); pointer-events: none; }
+  .g-body { position: relative; }
+  .g-scale { display: grid; grid-template-columns: 260px 1fr; font-size: 11px; color: var(--muted); }
+  .g-scale .ticks { position: relative; height: 18px; min-width: 600px; }
+  .g-scale .ticks span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+  details summary { cursor: pointer; font-weight: 600; }
+  code { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }
+  @media (max-width: 700px) { main { padding: 14px 12px 40px; } header { padding: 12px; } .g-row, .g-scale { grid-template-columns: 140px 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Project Plan Builder</h1>
+  <p>Enter the project, resources and tasks. Export a file that Microsoft Project opens with tasks, links and resources ready.</p>
+  <nav class="links"><a href="https://github.com/qrauf/project-plan-builder" target="_blank" rel="noopener">Source on GitHub</a> · <a href="https://qureshirauf.com/" target="_blank" rel="noopener">qureshirauf.com</a></nav>
+</header>
+
+<main>
+  <!-- 1. Project -->
+  <section class="card">
+    <h2><span class="step">1</span>Project</h2>
+    <div class="row">
+      <label style="flex:1;min-width:260px">Project name
+        <input id="projName" placeholder="e.g. Managed Services Transition – Client X">
+      </label>
+      <label>Project start date<input id="projStart" type="date" title="Pick a date: the whole plan moves to start on it"></label>
+      <label>Target end date<input id="projFinish" type="date" title="Your deadline: you will be warned if tasks run past it"></label>
+    </div>
+    <p class="hint" id="projInfo">Working days are Monday to Friday, 8 hours a day.</p>
+  </section>
+
+  <!-- 2. Resources -->
+  <section class="card">
+    <h2><span class="step">2</span>Resources</h2>
+    <div class="row">
+      <label style="flex:1;min-width:240px">Resource name
+        <input id="resName" placeholder="e.g. Project Manager, Ali Khan, DBA Team">
+      </label>
+      <button id="addRes">Add resource</button>
+    </div>
+    <div class="chips" id="resChips"></div>
+    <p class="hint">Tip: paste several names separated by commas and press Add.</p>
+  </section>
+
+  <!-- 3. Tasks -->
+  <section class="card">
+    <h2><span class="step">3</span>Tasks</h2>
+    <div class="toolbar">
+      <label>Template
+        <select id="tplSelect">
+          <option value="">Choose…</option>
+          <option value="blank">Blank plan</option>
+          <option value="pm">Standard project lifecycle</option>
+          <option value="msp">Managed services transition</option>
+        </select>
+      </label>
+      <button id="loadTpl">Load template</button>
+      <button id="addTask">+ Add task</button>
+      <button id="fixDates" title="Move tasks so they respect their predecessors">Fix dates from predecessors</button>
+      <span class="spacer"></span>
+      <button id="exportXml" class="primary">Export to MS Project (.xml)</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Task name</th><th>Resource</th><th>Start</th><th>End</th><th>Days</th>
+          <th>Predecessors</th><th>Successors</th><th>Milestone</th><th>Actions</th>
+        </tr></thead>
+        <tbody id="taskBody"></tbody>
+      </table>
+    </div>
+    <div class="msgs" id="msgs" aria-live="polite"></div>
+    <details style="margin-top:12px">
+      <summary>How to write predecessors</summary>
+      <p class="hint">Type the ID of the task that must come first. Separate several with commas.
+        <br><code>3</code> = task 3 must finish before this starts (Finish-to-Start)
+        <br><code>3SS</code> = start together · <code>3FF</code> = finish together · <code>3SF</code> = start-to-finish
+        <br><code>3FS+2</code> = 2 working days after task 3 finishes · <code>4SS+1w</code> = 1 week after task 4 starts · <code>5FS-1</code> = overlap by 1 day
+        <br>Successors fill in automatically. Use the ⇥ / ⇤ buttons to make phases (summary tasks).</p>
+    </details>
+  </section>
+
+  <!-- 4. Preview -->
+  <section class="card">
+    <h2><span class="step">4</span>Timeline preview</h2>
+    <div class="gantt" id="gantt"></div>
+  </section>
+</main>
+
+<script>
+(function () {
+  "use strict";
+  var KEY = "project-plan-builder:v1";
+  var state = { name: "", resources: [], tasks: [], nextUid: 1, projStart: "", projFinish: "" };
+
+  /* ---------- date helpers (UTC, Mon–Fri) ---------- */
+  function parse(d) { if (!d) return null; var p = d.split("-"); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])); }
+  function fmt(dt) { return dt.toISOString().slice(0, 10); }
+  function isWork(dt) { var w = dt.getUTCDay(); return w !== 0 && w !== 6; }
+  function addDays(dt, n) { var x = new Date(dt); x.setUTCDate(x.getUTCDate() + n); return x; }
+  function toWork(dt) { while (!isWork(dt)) dt = addDays(dt, 1); return dt; }
+  function addWork(dt, n) { // n working days forward (n>=0) or back (n<0)
+    var step = n < 0 ? -1 : 1, left = Math.abs(n);
+    while (left > 0) { dt = addDays(dt, step); if (isWork(dt)) left--; }
+    return dt;
+  }
+  function workDays(a, b) { // inclusive working days between a and b
+    if (!a || !b || b < a) return 0; var n = 0, d = new Date(a);
+    while (d <= b) { if (isWork(d)) n++; d = addDays(d, 1); }
+    return n;
+  }
+  function today() { var n = new Date(); return toWork(new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()))); }
+
+  /* ---------- storage ---------- */
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s && s.tasks) state = s; } catch (e) {} }
+
+  /* ---------- structure ---------- */
+  function isSummary(i) { var t = state.tasks; return i + 1 < t.length && t[i + 1].level > t[i].level; }
+  function idOf(uid) { for (var i = 0; i < state.tasks.length; i++) if (state.tasks[i].uid === uid) return i + 1; return null; }
+  function byUid(uid) { for (var i = 0; i < state.tasks.length; i++) if (state.tasks[i].uid === uid) return state.tasks[i]; return null; }
+  function children(i) { var t = state.tasks, out = [], L = t[i].level; for (var j = i + 1; j < t.length && t[j].level > L; j++) out.push(j); return out; }
+  function spanOf(i) { // dates for summary rows
+    var t = state.tasks; if (!isSummary(i)) return { s: parse(t[i].start), e: parse(t[i].end) };
+    var s = null, e = null;
+    children(i).forEach(function (j) { if (isSummary(j)) return; var a = parse(t[j].start), b = parse(t[j].end); if (a && (!s || a < s)) s = a; if (b && (!e || b > e)) e = b; });
+    return { s: s, e: e };
+  }
+
+  function planSpan() {
+    var s = null, e = null;
+    state.tasks.forEach(function (t, i) { var sp = spanOf(i); if (sp.s && (!s || sp.s < s)) s = sp.s; if (sp.e && (!e || sp.e > e)) e = sp.e; });
+    return { s: s, e: e };
+  }
+  function wdDiff(a, b) { // signed working days from a to b (both moved onto working days)
+    a = toWork(a); b = toWork(b); if (b >= a) return workDays(a, b) - 1; return -(workDays(b, a) - 1);
+  }
+  function shiftPlan(newStart) {
+    var span = planSpan(); state.projStart = newStart;
+    if (!span.s || !newStart) { save(); render(); return; }
+    var delta = wdDiff(span.s, parse(newStart)); if (!delta) { save(); render(); return; }
+    state.tasks.forEach(function (t, i) {
+      if (isSummary(i) || !t.start) return;
+      var dur = t.milestone ? 0 : Math.max(workDays(parse(t.start), parse(t.end)), 1);
+      var ns = addWork(toWork(parse(t.start)), delta);
+      t.start = fmt(ns); t.end = fmt(t.milestone ? ns : addWork(ns, dur - 1));
+    });
+    save(); render();
+    flash("Moved the whole plan by " + Math.abs(delta) + " working day(s) to start on " + fmt(toWork(parse(newStart))) + ".", "ok");
+  }
+  function baseStart() { return state.projStart ? toWork(parse(state.projStart)) : today(); }
+
+  /* ---------- predecessors ---------- */
+  var RE = /^(\d+)\s*(FS|SS|FF|SF)?\s*(?:([+-])\s*(\d+)\s*(d|w|days?|weeks?)?)?$/i;
+  function predText(t) {
+    return (t.preds || []).map(function (p) {
+      var id = idOf(p.uid); if (!id) return null;
+      var s = String(id); if (p.type !== "FS" || p.lag) s += p.type;
+      if (p.lag) s += (p.lag > 0 ? "+" : "-") + Math.abs(p.lag);
+      return s;
+    }).filter(Boolean).join(", ");
+  }
+  function parsePreds(text, selfIdx) {
+    var out = [], bad = [];
+    String(text || "").split(/[,;]+/).map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (tok) {
+      var m = RE.exec(tok); if (!m) { bad.push(tok); return; }
+      var id = +m[1]; if (id < 1 || id > state.tasks.length || id - 1 === selfIdx) { bad.push(tok); return; }
+      var lag = m[4] ? +m[4] * (/^w/i.test(m[5] || "") ? 5 : 1) * (m[3] === "-" ? -1 : 1) : 0;
+      out.push({ uid: state.tasks[id - 1].uid, type: (m[2] || "FS").toUpperCase(), lag: lag });
+    });
+    return { links: out, bad: bad };
+  }
+  function successors(uid) {
+    var out = [];
+    state.tasks.forEach(function (t, i) { (t.preds || []).forEach(function (p) { if (p.uid === uid) out.push(i + 1); }); });
+    return out.join(", ");
+  }
+  function hasCycle() {
+    var seen = {}, stack = {};
+    function visit(uid) {
+      if (stack[uid]) return true; if (seen[uid]) return false; seen[uid] = stack[uid] = true;
+      var t = byUid(uid); var bad = (t.preds || []).some(function (p) { return byUid(p.uid) && visit(p.uid); });
+      stack[uid] = false; return bad;
+    }
+    return state.tasks.some(function (t) { return visit(t.uid); });
+  }
+
+  /* ---------- scheduling ---------- */
+  function requiredStart(t) { // earliest start allowed by predecessors, or null
+    var dur = t.milestone ? 0 : Math.max(workDays(parse(t.start), parse(t.end)), 1), req = null;
+    (t.preds || []).forEach(function (p) {
+      var idx = idOf(p.uid); if (!idx) return; var pt = state.tasks[idx - 1]; var sp = spanOf(idx - 1);
+      if (!sp.s || !sp.e) return; var c;
+      if (p.type === "FS") c = addWork(pt.milestone ? toWork(sp.e) : addWork(sp.e, 1), p.lag);
+      else if (p.type === "SS") c = addWork(sp.s, p.lag);
+      else if (p.type === "FF") c = addWork(addWork(sp.e, p.lag), -(Math.max(dur, 1) - 1));
+      else c = addWork(addWork(sp.s, p.lag), -(Math.max(dur, 1) - 1));
+      c = toWork(c); if (!req || c > req) req = c;
+    });
+    return req;
+  }
+  function fixDates() {
+    if (hasCycle()) { render(); return; }
+    var moved = 0;
+    for (var pass = 0; pass < state.tasks.length + 1; pass++) {
+      var changed = false;
+      state.tasks.forEach(function (t, i) {
+        if (isSummary(i) || !t.start) return;
+        var req = requiredStart(t); var s = parse(t.start);
+        if (req && s < req) {
+          var dur = t.milestone ? 0 : Math.max(workDays(s, parse(t.end)), 1);
+          t.start = fmt(req); t.end = fmt(t.milestone ? req : addWork(req, dur - 1)); changed = true; moved++;
+        }
+      });
+      if (!changed) break;
+    }
+    save(); render();
+    flash(moved ? "Moved " + moved + " task date(s) to respect predecessors." : "All tasks already respect their predecessors.", "ok");
+  }
+
+  /* ---------- templates ---------- */
+  function T(name, level, days, preds, ms) { return { name: name, level: level, days: days, preds: preds || "", ms: !!ms }; }
+  var TEMPLATES = {
+    pm: [
+      T("Initiation", 1), T("Project charter and kickoff", 2, 3), T("Stakeholder analysis", 2, 2, "2"), T("Initiation sign-off", 2, 0, "3", true),
+      T("Planning", 1), T("Scope and WBS", 2, 5, "4"), T("Schedule and resource plan", 2, 4, "6"), T("Risk and communication plan", 2, 3, "6SS+2"), T("Plan approval", 2, 0, "7, 8", true),
+      T("Execution", 1), T("Build / configure", 2, 15, "9"), T("Testing and UAT", 2, 8, "11"), T("Go-live", 2, 0, "12", true),
+      T("Monitoring & control", 1), T("Status reporting and RAID reviews", 2, 25, "9"),
+      T("Closure", 1), T("Lessons learned and handover", 2, 3, "13"), T("Project closed", 2, 0, "17", true)
+    ],
+    msp: [
+      T("Mobilisation", 1), T("Contract kickoff and governance setup", 2, 3), T("Onboard team and access readiness", 2, 5, "2"), T("Mobilisation complete", 2, 0, "3", true),
+      T("Transition planning", 1), T("Service inventory and dependencies", 2, 5, "2SS+1"), T("Transition plan, risks and readiness criteria", 2, 4, "6"), T("Plan approved", 2, 0, "7", true),
+      T("Knowledge transfer", 1), T("Shadow support (incumbent leads)", 2, 10, "8, 4"), T("Reverse shadow (new team leads)", 2, 10, "10"), T("Documentation and SOPs", 2, 15, "10SS"),
+      T("Service go-live", 1), T("Operational readiness review", 2, 2, "11, 12"), T("Cutover to steady state", 2, 1, "14"), T("Service live", 2, 0, "15", true),
+      T("Hypercare and steady state", 1), T("Hypercare support", 2, 10, "16"), T("First monthly service review", 2, 1, "18")
+    ]
+  };
+  function loadTemplate(key) {
+    if (state.tasks.length && !confirm("Replace the current task list?")) return;
+    state.tasks = []; var start = baseStart();
+    if (key === "blank") { addTask(); return; }
+    var tpl = TEMPLATES[key]; if (!tpl) return;
+    tpl.forEach(function (r) {
+      var t = { uid: state.nextUid++, name: r.name, level: r.level, resource: "", milestone: r.ms, preds: [], start: "", end: "" };
+      if (r.days !== undefined) { t.start = fmt(start); t.end = fmt(r.ms ? start : addWork(start, Math.max(r.days, 1) - 1)); }
+      state.tasks.push(t);
+    });
+    tpl.forEach(function (r, i) { if (r.preds) state.tasks[i].preds = parsePreds(r.preds, i).links; });
+    fixDates();
+    if (!state.name) { state.name = key === "msp" ? "Managed Services Transition" : "New Project"; }
+    save(); render();
+  }
+
+  /* ---------- editing ---------- */
+  function addTask() {
+    var last = state.tasks.length ? state.tasks[state.tasks.length - 1] : null;
+    var s = last && last.end ? addWork(parse(last.end), 1) : baseStart();
+    state.tasks.push({ uid: state.nextUid++, name: "", level: last ? Math.max(last.level, 1) : 1, resource: "", milestone: false, preds: [], start: fmt(s), end: fmt(addWork(s, 4)) });
+    save(); render();
+    var inputs = document.querySelectorAll("td.name input"); if (inputs.length) inputs[inputs.length - 1].focus();
+  }
+  function act(i, what) {
+    var t = state.tasks;
+    if (what === "del") { var uid = t[i].uid; t.splice(i, 1); t.forEach(function (x) { x.preds = (x.preds || []).filter(function (p) { return p.uid !== uid; }); }); }
+    if (what === "up" && i > 0) { var a = t[i]; t[i] = t[i - 1]; t[i - 1] = a; }
+    if (what === "down" && i < t.length - 1) { var b = t[i]; t[i] = t[i + 1]; t[i + 1] = b; }
+    if (what === "in" && i > 0 && t[i].level <= t[i - 1].level) t[i].level++;
+    if (what === "out" && t[i].level > 1) t[i].level--;
+    save(); render();
+  }
+
+  /* ---------- rendering ---------- */
+  function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  var flashMsg = null;
+  function flash(text, kind) { flashMsg = { text: text, kind: kind }; renderMsgs(); }
+
+  function renderResources() {
+    var box = document.getElementById("resChips");
+    box.innerHTML = state.resources.map(function (r, i) {
+      return '<span class="chip">' + esc(r) + '<button aria-label="Remove ' + esc(r) + '" data-rm="' + i + '">×</button></span>';
+    }).join("") || '<span class="hint" style="margin:0">No resources yet.</span>';
+  }
+
+  function render() {
+    document.getElementById("projName").value = state.name;
+    renderResources();
+    var body = document.getElementById("taskBody"), html = "";
+    state.tasks.forEach(function (t, i) {
+      var sum = isSummary(i), sp = spanOf(i);
+      var resOpts = '<option value=""></option>' + state.resources.map(function (r) { return '<option' + (r === t.resource ? " selected" : "") + ">" + esc(r) + "</option>"; }).join("");
+      var days = sum ? workDays(sp.s, sp.e) : (t.milestone ? 0 : workDays(parse(t.start), parse(t.end)));
+      var dateBad = !sum && t.start && t.end && parse(t.end) < parse(t.start);
+      var req = sum ? null : requiredStart(t), late = req && t.start && parse(t.start) < req;
+      html += '<tr class="' + (sum ? "summary" : "") + '" data-i="' + i + '">' +
+        '<td class="id">' + (i + 1) + "</td>" +
+        '<td class="name"><span class="indent" style="width:' + (t.level - 1) * 18 + 'px"></span><input data-f="name" value="' + esc(t.name) + '" placeholder="Task name" style="width:calc(100% - ' + (t.level - 1) * 18 + 'px)"></td>' +
+        "<td>" + (sum ? "" : '<select data-f="resource">' + resOpts + "</select>") + "</td>" +
+        "<td>" + (sum ? (sp.s ? fmt(sp.s) : "") : '<input type="date" data-f="start" value="' + esc(t.start) + '"' + (late ? ' class="bad" title="Starts before its predecessors allow"' : "") + ">") + "</td>" +
+        "<td>" + (sum ? (sp.e ? fmt(sp.e) : "") : '<input type="date" data-f="end" value="' + esc(t.end) + '"' + (dateBad ? ' class="bad"' : "") + (t.milestone ? " disabled" : "") + ">") + "</td>" +
+        '<td class="dur">' + days + "</td>" +
+        "<td>" + (sum ? "" : '<input data-f="preds" value="' + esc(predText(t)) + '" placeholder="e.g. 2, 3SS+1">') + "</td>" +
+        '<td class="succ">' + esc(successors(t.uid)) + "</td>" +
+        '<td class="ms">' + (sum ? "" : '<input type="checkbox" data-f="milestone"' + (t.milestone ? " checked" : "") + ' aria-label="Milestone">') + "</td>" +
+        '<td class="act"><button class="icon" data-a="out" title="Outdent">⇤</button> <button class="icon" data-a="in" title="Indent (make sub-task)">⇥</button> ' +
+        '<button class="icon" data-a="up" title="Move up">↑</button> <button class="icon" data-a="down" title="Move down">↓</button> <button class="icon" data-a="del" title="Delete">✕</button></td></tr>';
+    });
+    body.innerHTML = html || '<tr><td colspan="10" class="hint" style="padding:16px">No tasks yet. Load a template or click “+ Add task”.</td></tr>';
+    var span = planSpan(), s = span.s, e = span.e;
+    if (!state.projStart && s) state.projStart = fmt(s);
+    document.getElementById("projStart").value = state.projStart || "";
+    document.getElementById("projFinish").value = state.projFinish || "";
+    var info = "Working days are Monday to Friday, 8 hours a day.";
+    if (s && e) info = "Tasks run from " + fmt(s) + " to " + fmt(e) + " (" + workDays(s, e) + " working days). " + info;
+    document.getElementById("projInfo").textContent = info;
+    renderMsgs(); renderGantt(s, e);
+  }
+
+  function problems() {
+    var out = [];
+    if (!state.name.trim()) out.push(["warn", "Add a project name."]);
+    var span = planSpan();
+    if (state.projFinish && span.e && span.e > parse(state.projFinish)) out.push(["warn", "The plan finishes on " + fmt(span.e) + ", after your target end date " + state.projFinish + " (" + (workDays(addDays(parse(state.projFinish), 1), span.e)) + " working day(s) late)."]);
+    if (state.projStart && state.projFinish && parse(state.projFinish) < parse(state.projStart)) out.push(["err", "Target end date is before the project start date."]);
+    if (hasCycle()) out.push(["err", "Predecessors form a loop (a task ends up depending on itself). Remove one of the links."]);
+    state.tasks.forEach(function (t, i) {
+      if (isSummary(i)) return;
+      if (!t.name.trim()) out.push(["warn", "Task " + (i + 1) + " has no name."]);
+      if (!t.start || !t.end) out.push(["err", "Task " + (i + 1) + " needs a start and end date."]);
+      else if (parse(t.end) < parse(t.start)) out.push(["err", "Task " + (i + 1) + " ends before it starts."]);
+      var req = requiredStart(t); if (req && t.start && parse(t.start) < req) out.push(["warn", "Task " + (i + 1) + " starts before its predecessors allow (earliest " + fmt(req) + "). Click “Fix dates from predecessors”, or MS Project will move it."]);
+      if (t._bad && t._bad.length) out.push(["err", "Task " + (i + 1) + ": couldn’t read predecessor “" + t._bad.join(", ") + "”."]);
+    });
+    return out;
+  }
+  function renderMsgs() {
+    var box = document.getElementById("msgs"), list = problems();
+    var html = list.slice(0, 8).map(function (m) { return '<div class="msg ' + m[0] + '">' + esc(m[1]) + "</div>"; }).join("");
+    if (list.length > 8) html += '<div class="msg warn">…and ' + (list.length - 8) + " more.</div>";
+    if (flashMsg) html = '<div class="msg ' + flashMsg.kind + '">' + esc(flashMsg.text) + "</div>" + html;
+    box.innerHTML = html;
+  }
+
+  function renderGantt(s, e) {
+    var g = document.getElementById("gantt");
+    if (!s || !e) { g.innerHTML = '<p class="hint">Add tasks with dates to see the timeline.</p>'; return; }
+    var target = state.projFinish ? parse(state.projFinish) : null;
+    if (target && target > e) e = target;
+    var total = Math.max((e - s) / 864e5 + 1, 1);
+    function pct(d) { return ((d - s) / 864e5) / total * 100; }
+    var ticks = "", step = Math.max(Math.ceil(total / 10 / 7) * 7, 7);
+    for (var d = 0; d <= total; d += step) { var dt = addDays(s, d); ticks += '<span style="left:' + pct(dt) + '%">' + dt.toISOString().slice(5, 10) + "</span>"; }
+    var rows = '<div class="g-scale"><div></div><div class="ticks">' + ticks + "</div></div>", body = "";
+    state.tasks.forEach(function (t, i) {
+      var sp = spanOf(i), bar = "";
+      if (sp.s && sp.e) {
+        if (!isSummary(i) && t.milestone) bar = '<div class="g-ms" style="left:calc(' + pct(sp.s) + '% - 6px)" title="' + esc(t.name) + '"></div>';
+        else bar = '<div class="g-bar' + (isSummary(i) ? " sum" : "") + '" style="left:' + pct(sp.s) + "%;width:" + Math.max((pct(addDays(sp.e, 1)) - pct(sp.s)), 0.6) + '%" title="' + esc(t.name) + " (" + fmt(sp.s) + " → " + fmt(sp.e) + ')"></div>';
+      }
+      body += '<div class="g-row"><div class="g-name" style="padding-left:' + (t.level - 1) * 12 + 'px;' + (isSummary(i) ? "font-weight:700" : "") + '">' + (i + 1) + ". " + esc(t.name || "(unnamed)") + '</div><div class="g-track">' + bar + "</div></div>";
+    });
+    var line = target ? '<div class="g-row" style="position:absolute;inset:0;border:0;pointer-events:none"><div></div><div style="position:relative;height:100%"><div class="g-deadline" style="left:' + pct(addDays(target, 1)) + '%" title="Target end ' + fmt(target) + '"></div></div></div>' : "";
+    g.innerHTML = rows + '<div class="g-body">' + line + body + "</div>";
+  }
+
+  /* ---------- MS Project XML (MSPDI) export ---------- */
+  function x(s) { return esc(s).replace(/'/g, "&apos;"); }
+  function exportXml() {
+    var errs = problems().filter(function (p) { return p[0] === "err"; });
+    if (!state.tasks.length) { flash("Add at least one task before exporting.", "err"); return; }
+    if (errs.length) { flash("Fix the red issues before exporting.", "err"); return; }
+    var name = state.name.trim() || "Project Plan";
+    var span = planSpan(), ps = fmt(span.s), pf = fmt(span.e);
+    var resUid = {}; state.resources.forEach(function (r, i) { resUid[r] = i + 1; });
+    var L = [];
+    L.push('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>');
+    L.push('<Project xmlns="http://schemas.microsoft.com/project">');
+    L.push("<SaveVersion>14</SaveVersion><Name>" + x(name) + ".xml</Name><Title>" + x(name) + "</Title>");
+    L.push("<ScheduleFromStart>1</ScheduleFromStart><StartDate>" + ps + "T08:00:00</StartDate><FinishDate>" + pf + "T17:00:00</FinishDate>");
+    L.push("<CalendarUID>1</CalendarUID><DefaultStartTime>08:00:00</DefaultStartTime><DefaultFinishTime>17:00:00</DefaultFinishTime>");
+    L.push("<MinutesPerDay>480</MinutesPerDay><MinutesPerWeek>2400</MinutesPerWeek><DaysPerMonth>20</DaysPerMonth><DurationFormat>7</DurationFormat><WorkFormat>2</WorkFormat>");
+    L.push("<Calendars><Calendar><UID>1</UID><Name>Standard</Name><IsBaseCalendar>1</IsBaseCalendar><WeekDays>");
+    for (var wd = 1; wd <= 7; wd++) {
+      if (wd === 1 || wd === 7) L.push("<WeekDay><DayType>" + wd + "</DayType><DayWorking>0</DayWorking></WeekDay>");
+      else L.push("<WeekDay><DayType>" + wd + "</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>");
+    }
+    L.push("</WeekDays></Calendar></Calendars>");
+    L.push("<Tasks>");
+    L.push("<Task><UID>0</UID><ID>0</ID><Name>" + x(name) + "</Name><Type>1</Type><OutlineLevel>0</OutlineLevel><Start>" + ps + "T08:00:00</Start><Finish>" + pf + "T17:00:00</Finish><Summary>1</Summary></Task>");
+    var assigns = [];
+    state.tasks.forEach(function (t, i) {
+      var uid = i + 1, sum = isSummary(i), sp = spanOf(i);
+      var days = sum ? workDays(sp.s, sp.e) : (t.milestone ? 0 : Math.max(workDays(parse(t.start), parse(t.end)), 1));
+      var hasRes = !sum && t.resource && resUid[t.resource];
+      var st = fmt(sp.s) + "T08:00:00", fin = (t.milestone && !sum) ? fmt(sp.s) + "T08:00:00" : fmt(sp.e) + "T17:00:00";
+      L.push("<Task><UID>" + uid + "</UID><ID>" + uid + "</ID><Name>" + x(t.name || "Task " + uid) + "</Name><Type>" + (hasRes ? 1 : 0) + "</Type><OutlineLevel>" + t.level + "</OutlineLevel>");
+      L.push("<Start>" + st + "</Start><Finish>" + fin + "</Finish><Duration>PT" + (days * 8) + "H0M0S</Duration><DurationFormat>7</DurationFormat>");
+      L.push((hasRes ? "<Work>PT" + (days * 8) + "H0M0S</Work><EffortDriven>0</EffortDriven>" : "") + "<Milestone>" + (t.milestone && !sum ? 1 : 0) + "</Milestone><Summary>" + (sum ? 1 : 0) + "</Summary>");
+      if (!sum) L.push("<RemainingDuration>PT" + (days * 8) + "H0M0S</RemainingDuration><ConstraintType>4</ConstraintType><ConstraintDate>" + st + "</ConstraintDate>");
+      if (!sum) (t.preds || []).forEach(function (p) {
+        var pid = idOf(p.uid); if (!pid) return;
+        L.push("<PredecessorLink><PredecessorUID>" + pid + "</PredecessorUID><Type>" + { FF: 0, FS: 1, SF: 2, SS: 3 }[p.type] + "</Type><CrossProject>0</CrossProject><LinkLag>" + (p.lag * 4800) + "</LinkLag><LagFormat>7</LagFormat></PredecessorLink>");
+      });
+      L.push("</Task>");
+      if (!sum && t.resource && resUid[t.resource]) assigns.push([uid, resUid[t.resource], st, fin, days * 8]);
+    });
+    L.push("</Tasks><Resources>");
+    state.resources.forEach(function (r, i) { L.push("<Resource><UID>" + (i + 1) + "</UID><ID>" + (i + 1) + "</ID><Name>" + x(r) + "</Name><Type>1</Type><MaxUnits>1.00</MaxUnits></Resource>"); });
+    L.push("</Resources><Assignments>");
+    assigns.forEach(function (a, i) { L.push("<Assignment><UID>" + (i + 1) + "</UID><TaskUID>" + a[0] + "</TaskUID><ResourceUID>" + a[1] + "</ResourceUID><Finish>" + a[3] + "</Finish><RemainingWork>PT" + a[4] + "H0M0S</RemainingWork><Start>" + a[2] + "</Start><Units>1</Units><Work>PT" + a[4] + "H0M0S</Work></Assignment>"); });
+    L.push("</Assignments></Project>");
+    var blob = new Blob([L.join("\n")], { type: "application/xml" });
+    var a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+    a.download = name.replace(/[\\/:*?"<>|]+/g, "-") + ".xml"; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
+    flash("Exported “" + a.download + "”. Open it in MS Project (File → Open, choose XML), then Save As .mpp.", "ok");
+  }
+
+  /* ---------- events ---------- */
+  document.getElementById("projStart").addEventListener("change", function (e) { if (e.target.value) shiftPlan(e.target.value); });
+  document.getElementById("projFinish").addEventListener("change", function (e) { state.projFinish = e.target.value; flashMsg = null; save(); render(); });
+  document.getElementById("projName").addEventListener("input", function (e) { state.name = e.target.value; save(); renderMsgs(); });
+  function addResources() {
+    var inp = document.getElementById("resName");
+    inp.value.split(",").map(function (s) { return s.trim(); }).filter(Boolean).forEach(function (r) { if (state.resources.indexOf(r) < 0) state.resources.push(r); });
+    inp.value = ""; save(); render(); inp.focus();
+  }
+  document.getElementById("addRes").addEventListener("click", addResources);
+  document.getElementById("resName").addEventListener("keydown", function (e) { if (e.key === "Enter") addResources(); });
+  document.getElementById("resChips").addEventListener("click", function (e) {
+    var i = e.target.getAttribute("data-rm"); if (i === null) return;
+    var r = state.resources[+i]; state.resources.splice(+i, 1);
+    state.tasks.forEach(function (t) { if (t.resource === r) t.resource = ""; }); save(); render();
+  });
+  document.getElementById("loadTpl").addEventListener("click", function () { var v = document.getElementById("tplSelect").value; if (v) loadTemplate(v); });
+  document.getElementById("addTask").addEventListener("click", addTask);
+  document.getElementById("fixDates").addEventListener("click", fixDates);
+  document.getElementById("exportXml").addEventListener("click", exportXml);
+
+  var body = document.getElementById("taskBody");
+  body.addEventListener("click", function (e) {
+    var a = e.target.getAttribute("data-a"); if (!a) return;
+    var i = +e.target.closest("tr").getAttribute("data-i");
+    if (a === "del" && state.tasks[i].name && !confirm("Delete task " + (i + 1) + "?")) return;
+    act(i, a);
+  });
+  body.addEventListener("change", function (e) {
+    var f = e.target.getAttribute("data-f"); if (!f) return;
+    var i = +e.target.closest("tr").getAttribute("data-i"), t = state.tasks[i];
+    if (f === "preds") { var r = parsePreds(e.target.value, i); t.preds = r.links; t._bad = r.bad; }
+    else if (f === "milestone") { t.milestone = e.target.checked; if (t.milestone) t.end = t.start; }
+    else if (f === "start") { var dur = Math.max(workDays(parse(t.start), parse(t.end)), 1); t.start = e.target.value; if (t.start) t.end = fmt(t.milestone ? parse(t.start) : addWork(toWork(parse(t.start)), dur - 1)); }
+    else t[f] = e.target.value;
+    flashMsg = null; save(); render();
+  });
+  body.addEventListener("input", function (e) {
+    if (e.target.getAttribute("data-f") === "name") { state.tasks[+e.target.closest("tr").getAttribute("data-i")].name = e.target.value; save(); renderGantt(parse(document.getElementById("projStart").value), parse(document.getElementById("projFinish").value)); }
+  });
+
+  load(); render();
+})();
+</script>
+</body>
+</html>
