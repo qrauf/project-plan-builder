@@ -59,6 +59,24 @@
   td.dur { text-align: right; white-space: nowrap; width: 70px; }
   td.succ { color: var(--muted); font-size: 12px; min-width: 90px; }
   td.ms { text-align: center; width: 50px; }
+  td.leave { min-width: 230px; }
+  td.leave .lv { display: flex; gap: 4px; align-items: center; }
+  td.leave input[type="date"] { width: auto; flex: 1; min-width: 130px; }
+  td.leave input[type="number"] { width: 58px; }
+  td.leave .lv-note { color: var(--warn); font-size: 12px; margin-top: 2px; }
+  .lv-days { font-size: 12px; color: var(--muted); }
+  .card h3 { font-size: 13px; margin: 18px 0 8px; }
+  .res-wrap { overflow-x: auto; margin-top: 10px; }
+  table.res { min-width: 640px; width: auto; }
+  table.res td input { width: 110px; }
+  table.res td select { width: auto; }
+  table.res td.name { min-width: 180px; font-weight: 600; }
+  table.res td.num, table.res th.num { text-align: right; white-space: nowrap; }
+  table.res tfoot td { font-weight: 700; border-bottom: 0; }
+  td.cost, th.cost { text-align: right; white-space: nowrap; }
+  .muted { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .chip.leave { background: color-mix(in srgb, var(--warn) 12%, var(--surface)); color: var(--warn); }
+  .g-leave { position: absolute; top: 3px; bottom: 3px; background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--warn) 35%, transparent) 0 3px, transparent 3px 6px); border-radius: 3px; pointer-events: auto; }
   td.act { white-space: nowrap; width: 150px; }
   .indent { display: inline-block; }
   .msgs { margin-top: 12px; display: grid; gap: 4px; }
@@ -112,9 +130,24 @@
         <input id="resName" placeholder="e.g. Project Manager, Ali Khan, DBA Team">
       </label>
       <button id="addRes">Add resource</button>
+      <label>Currency<select id="currency" title="Currency for rates and costs (MS Project uses one currency per project)"></select></label>
     </div>
-    <div class="chips" id="resChips"></div>
-    <p class="hint">Tip: paste several names separated by commas and press Add.</p>
+    <div id="resChips"></div>
+    <p class="hint">Tip: paste several names separated by commas and press Add. Rates go to MS Project’s Std. Rate, Ovt. Rate and Cost/Use fields; MS Project then calculates task costs.</p>
+    <h3>Leave</h3>
+    <div class="row">
+      <label>Resource<select id="leaveRes" style="min-width:160px"></select></label>
+      <label>First day of leave<input id="leaveFrom" type="date"></label>
+      <label>Working days<input id="leaveDays" type="number" min="1" value="1" style="width:90px"></label>
+      <label>Last day<input id="leaveTo" type="date" title="Filled from the number of days; you can also pick it"></label>
+      <label style="flex:1;min-width:180px">Note
+        <input id="leaveNote" placeholder="e.g. Annual leave">
+      </label>
+      <button id="addLeave">Add leave</button>
+    </div>
+    <div class="msgs" id="leaveMsg" aria-live="polite"></div>
+    <div class="chips" id="leaveChips"></div>
+    <p class="hint">Leave becomes non-working time on the resource’s calendar in MS Project, so their tasks stretch around it. You can also set leave on a task row in the <b>Leave</b> column (date + working days) for that task’s resource.</p>
   </section>
 
   <!-- 3. Tasks -->
@@ -139,7 +172,7 @@
       <table>
         <thead><tr>
           <th>ID</th><th>Task name</th><th>Resource</th><th>Start</th><th>End</th><th>Days</th>
-          <th>Predecessors</th><th>Successors</th><th>Milestone</th><th>Actions</th>
+          <th>Predecessors</th><th>Successors</th><th>Milestone</th><th>Leave</th><th class="cost">Cost</th><th>Actions</th>
         </tr></thead>
         <tbody id="taskBody"></tbody>
       </table>
@@ -166,7 +199,7 @@
 (function () {
   "use strict";
   var KEY = "project-plan-builder:v1";
-  var state = { name: "", resources: [], tasks: [], nextUid: 1, projStart: "", projFinish: "" };
+  var state = { name: "", resources: [], leaves: [], tasks: [], nextUid: 1, projStart: "", projFinish: "" };
 
   /* ---------- date helpers (UTC, Mon–Fri) ---------- */
   function parse(d) { if (!d) return null; var p = d.split("-"); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])); }
@@ -188,7 +221,40 @@
 
   /* ---------- storage ---------- */
   function save() { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
-  function load() { try { var s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s && s.tasks) state = s; } catch (e) {} }
+  function load() { try { var s = JSON.parse(localStorage.getItem(KEY) || "null"); if (s && s.tasks) state = s; } catch (e) {} state.leaves = state.leaves || []; }
+
+  /* ---------- leave ---------- */
+  function leaveText(l) { return l.start === l.end ? l.start : l.start + " → " + l.end; }
+  function rowLeave(t, i) { // leave entered on a task row, for that task's resource
+    if (isSummary(i) || !t.resource || !t.leaveStart) return null;
+    var s = toWork(parse(t.leaveStart));
+    return { resource: t.resource, start: fmt(s), end: fmt(addWork(s, Math.max(+t.leaveDays || 1, 1) - 1)), note: "Leave", taskUid: t.uid };
+  }
+  function allLeaves() {
+    var out = state.leaves.slice();
+    state.tasks.forEach(function (t, i) { var l = rowLeave(t, i); if (l) out.push(l); });
+    return out;
+  }
+  function resLeaves(r) { // a resource's leave, sorted, with overlapping/adjacent periods merged (MS Project rejects overlapping exceptions)
+    var out = [];
+    allLeaves().filter(function (l) { return l.resource === r; }).sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; }).forEach(function (l) {
+      var last = out[out.length - 1];
+      if (last && parse(l.start) <= addDays(parse(last.end), 1)) {
+        if (l.end > last.end) last.end = l.end;
+        if (l.note && last.note.split(", ").indexOf(l.note) < 0) last.note += ", " + l.note;
+      } else out.push({ resource: r, start: l.start, end: l.end, note: l.note || "Leave" });
+    });
+    return out;
+  }
+  function taskLeaves(t) { // leaves of the task's resource that overlap its working days
+    if (!t.resource || !t.start || !t.end) return [];
+    var s = parse(t.start), e = parse(t.milestone ? t.start : t.end);
+    return resLeaves(t.resource).filter(function (l) { return parse(l.start) <= e && parse(l.end) >= s; }).map(function (l) {
+      var a = parse(l.start) > s ? parse(l.start) : s, b = parse(l.end) < e ? parse(l.end) : e;
+      return { leave: l, days: workDays(a, b) };
+    }).filter(function (o) { return o.days > 0; });
+  }
+  function taskLeaveText(t) { return taskLeaves(t).map(function (o) { return leaveText(o.leave) + " (" + o.days + "d)"; }).join("; "); }
 
   /* ---------- structure ---------- */
   function isSummary(i) { var t = state.tasks; return i + 1 < t.length && t[i + 1].level > t[i].level; }
@@ -351,10 +417,73 @@
   function flash(text, kind) { flashMsg = { text: text, kind: kind }; renderMsgs(); }
 
   function renderResources() {
-    var box = document.getElementById("resChips");
-    box.innerHTML = state.resources.map(function (r, i) {
-      return '<span class="chip">' + esc(r) + '<button aria-label="Remove ' + esc(r) + '" data-rm="' + i + '">×</button></span>';
-    }).join("") || '<span class="hint" style="margin:0">No resources yet.</span>';
+    var box = document.getElementById("resChips"), sym = curSym();
+    document.getElementById("currency").innerHTML = CURRENCIES.map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === curCode() ? " selected" : "") + ">" + c[0] + " (" + esc(c[1].trim()) + ") " + c[2] + "</option>"; }).join("");
+    var rows = state.resources.map(function (r, i) {
+      var rt = rateOf(r);
+      function num(f, label) { return '<td class="num"><input type="number" min="0" step="any" data-rf="' + f + '" value="' + esc(rt[f]) + '" aria-label="' + label + " for " + esc(r) + '"></td>'; }
+      return '<tr data-r="' + i + '"><td class="name">' + esc(r) + "</td>" + num("std", "Standard rate") + num("ovt", "Overtime rate") +
+        '<td><select data-rf="unit" aria-label="Rate unit for ' + esc(r) + '"><option value="h"' + (rt.unit !== "d" ? " selected" : "") + '>per hour</option><option value="d"' + (rt.unit === "d" ? " selected" : "") + ">per day</option></select></td>" +
+        num("use", "Cost per use") + '<td class="num" data-rescost="' + i + '"></td><td><button class="icon" aria-label="Remove ' + esc(r) + '" title="Remove resource" data-rm="' + i + '">✕</button></td></tr>';
+    }).join("");
+    box.innerHTML = rows ? '<div class="res-wrap"><table class="res"><thead><tr><th>Resource</th><th class="num">Standard rate (' + esc(sym.trim()) + ')</th><th class="num">Overtime rate (' + esc(sym.trim()) + ')</th><th>Rate per</th><th class="num">Cost per use (' + esc(sym.trim()) + ')</th><th class="num" title="Work on assigned tasks × standard rate + cost per use">Planned cost</th><th></th></tr></thead><tbody>' +
+      rows + '</tbody><tfoot><tr><td colspan="5">Total planned cost</td><td class="num" id="resTotal"></td><td></td></tr></tfoot></table></div>'
+      : '<p class="hint">No resources yet.</p>';
+    updateCosts();
+    var sel = document.getElementById("leaveRes"), cur = sel.value;
+    sel.innerHTML = state.resources.map(function (r) { return "<option" + (r === cur ? " selected" : "") + ">" + esc(r) + "</option>"; }).join("");
+    document.getElementById("leaveChips").innerHTML = allLeaves().map(function (l, i) {
+      var d = workDays(parse(l.start), parse(l.end));
+      return '<span class="chip leave">' + esc(l.resource) + " · " + esc(leaveText(l)) + " (" + d + " working day" + (d === 1 ? "" : "s") + ")" +
+        (l.taskUid ? " · set on task " + idOf(l.taskUid) : l.note ? " · " + esc(l.note) : "") +
+        '<button aria-label="Remove leave" ' + (l.taskUid ? 'data-rmt="' + l.taskUid : 'data-rml="' + i) + '">×</button></span>';
+    }).join("") || '<span class="hint" style="margin:0">No leave added.</span>';
+  }
+
+  /* ---------- rates ---------- */
+  function rateOf(r) { state.rates = state.rates || {}; return state.rates[r] || { std: "", ovt: "", unit: "h", use: "" }; }
+  function hourly(r, f) { var rt = rateOf(r), v = +rt[f] || 0; return rt.unit === "d" ? v / 8 : v; }
+  var CURRENCIES = [ // code, symbol, name
+    ["USD", "$", "US dollar"], ["EUR", "€", "Euro"], ["GBP", "£", "Pound sterling"], ["PKR", "Rs ", "Pakistani rupee"], ["INR", "₹", "Indian rupee"],
+    ["AED", "AED ", "UAE dirham"], ["SAR", "SAR ", "Saudi riyal"], ["QAR", "QAR ", "Qatari riyal"], ["CAD", "C$", "Canadian dollar"], ["AUD", "A$", "Australian dollar"],
+    ["NZD", "NZ$", "New Zealand dollar"], ["SGD", "S$", "Singapore dollar"], ["CHF", "CHF ", "Swiss franc"], ["JPY", "¥", "Japanese yen"], ["CNY", "CN¥", "Chinese yuan"], ["ZAR", "R ", "South African rand"]
+  ];
+  function curCode() { // older saves stored a free-text symbol; map it to a code where possible
+    var c = state.currency || "USD";
+    for (var i = 0; i < CURRENCIES.length; i++) if (CURRENCIES[i][0] === c || CURRENCIES[i][1].trim() === c.trim()) return CURRENCIES[i][0];
+    return "USD";
+  }
+  function curSym() { var c = curCode(); for (var i = 0; i < CURRENCIES.length; i++) if (CURRENCIES[i][0] === c) return CURRENCIES[i][1]; return "$"; }
+  function taskHours(t) { return t.milestone ? 0 : Math.max(workDays(parse(t.start), parse(t.end)), 1) * 8; }
+  function taskCost(i) { // standard-rate cost of a task (summary = sum of its sub-tasks), or null when nothing is assigned
+    var t = state.tasks[i];
+    if (isSummary(i)) { var s = null; children(i).forEach(function (j) { if (!isSummary(j)) { var c = taskCost(j); if (c !== null) s = (s || 0) + c; } }); return s; }
+    if (!t.resource || !t.start) return null;
+    return taskHours(t) * hourly(t.resource, "std") + (+rateOf(t.resource).use || 0);
+  }
+  function resCost(r) { // cost of the resource's assigned tasks plus cost per use, or null when it has no tasks
+    var c = null;
+    state.tasks.forEach(function (t, i) { if (!isSummary(i) && t.resource === r && t.start) c = (c || 0) + taskCost(i); });
+    return c;
+  }
+  function money(v) { return esc(curSym()) + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function costCell(i) { var c = taskCost(i); return c === null ? "" : money(c); }
+  function updateCosts() { // refresh cost figures in place, so typing a rate doesn't lose focus
+    var total = 0;
+    state.resources.forEach(function (r, i) {
+      var cell = document.querySelector('[data-rescost="' + i + '"]'), c = resCost(r); if (c) total += c;
+      if (cell) cell.innerHTML = c === null ? '<span class="muted" title="Assign this resource to tasks in step 3">no tasks assigned</span>' : money(c);
+    });
+    var tot = document.getElementById("resTotal"); if (tot) tot.innerHTML = money(total);
+    Array.prototype.forEach.call(document.querySelectorAll("[data-cost]"), function (cell) { cell.innerHTML = costCell(+cell.getAttribute("data-cost")); });
+  }
+
+  function leaveCell(t) {
+    var off = t.resource ? "" : ' disabled title="Assign a resource first"';
+    var html = '<div class="lv"><input type="date" data-f="leaveStart" value="' + esc(t.leaveStart || "") + '" aria-label="First day of leave"' + off + ">" +
+      '<input type="number" min="1" data-f="leaveDays" value="' + esc(t.leaveStart ? (t.leaveDays || 1) : "") + '" placeholder="days" aria-label="Working days of leave"' + off + "></div>";
+    var txt = taskLeaveText(t);
+    return html + (txt ? '<div class="lv-note" title="Leave during this task">On leave: ' + esc(txt) + "</div>" : "");
   }
 
   function render() {
@@ -377,10 +506,12 @@
         "<td>" + (sum ? "" : '<input data-f="preds" value="' + esc(predText(t)) + '" placeholder="e.g. 2, 3SS+1">') + "</td>" +
         '<td class="succ">' + esc(successors(t.uid)) + "</td>" +
         '<td class="ms">' + (sum ? "" : '<input type="checkbox" data-f="milestone"' + (t.milestone ? " checked" : "") + ' aria-label="Milestone">') + "</td>" +
+        '<td class="leave">' + (sum ? "" : leaveCell(t)) + "</td>" +
+        '<td class="cost" data-cost="' + i + '">' + costCell(i) + "</td>" +
         '<td class="act"><button class="icon" data-a="out" title="Outdent">⇤</button> <button class="icon" data-a="in" title="Indent (make sub-task)">⇥</button> ' +
         '<button class="icon" data-a="up" title="Move up">↑</button> <button class="icon" data-a="down" title="Move down">↓</button> <button class="icon" data-a="del" title="Delete">✕</button></td></tr>';
     });
-    body.innerHTML = html || '<tr><td colspan="10" class="hint" style="padding:16px">No tasks yet. Load a template or click “+ Add task”.</td></tr>';
+    body.innerHTML = html || '<tr><td colspan="12" class="hint" style="padding:16px">No tasks yet. Load a template or click “+ Add task”.</td></tr>';
     var span = planSpan(), s = span.s, e = span.e;
     if (!state.projStart && s) state.projStart = fmt(s);
     document.getElementById("projStart").value = state.projStart || "";
@@ -404,6 +535,7 @@
       if (!t.start || !t.end) out.push(["err", "Task " + (i + 1) + " needs a start and end date."]);
       else if (parse(t.end) < parse(t.start)) out.push(["err", "Task " + (i + 1) + " ends before it starts."]);
       var req = requiredStart(t); if (req && t.start && parse(t.start) < req) out.push(["warn", "Task " + (i + 1) + " starts before its predecessors allow (earliest " + fmt(req) + "). Click “Fix dates from predecessors”, or MS Project will move it."]);
+      taskLeaves(t).forEach(function (o) { out.push(["warn", "Task " + (i + 1) + ": " + t.resource + " is on leave " + leaveText(o.leave) + " (" + o.days + " working day(s) overlap). MS Project will extend the task around the leave."]); });
       if (t._bad && t._bad.length) out.push(["err", "Task " + (i + 1) + ": couldn’t read predecessor “" + t._bad.join(", ") + "”."]);
     });
     return out;
@@ -428,6 +560,11 @@
     var rows = '<div class="g-scale"><div></div><div class="ticks">' + ticks + "</div></div>", body = "";
     state.tasks.forEach(function (t, i) {
       var sp = spanOf(i), bar = "";
+      if (!isSummary(i) && t.resource) resLeaves(t.resource).forEach(function (l) {
+        var a = parse(l.start), b = parse(l.end);
+        if (b < s || a > e) return; if (a < s) a = s; if (b > e) b = e;
+        bar += '<div class="g-leave" style="left:' + pct(a) + "%;width:" + (pct(addDays(b, 1)) - pct(a)) + '%" title="' + esc(l.resource) + " on leave " + esc(leaveText(l)) + '"></div>';
+      });
       if (sp.s && sp.e) {
         if (!isSummary(i) && t.milestone) bar = '<div class="g-ms" style="left:calc(' + pct(sp.s) + '% - 6px)" title="' + esc(t.name) + '"></div>';
         else bar = '<div class="g-bar' + (isSummary(i) ? " sum" : "") + '" style="left:' + pct(sp.s) + "%;width:" + Math.max((pct(addDays(sp.e, 1)) - pct(sp.s)), 0.6) + '%" title="' + esc(t.name) + " (" + fmt(sp.s) + " → " + fmt(sp.e) + ')"></div>';
@@ -440,6 +577,7 @@
 
   /* ---------- MS Project XML (MSPDI) export ---------- */
   function x(s) { return esc(s).replace(/'/g, "&apos;"); }
+  function cents(v) { return Math.round((v || 0) * 100); } // MSPDI stores currency amounts in hundredths (rates are plain per-hour values)
   function exportXml() {
     var errs = problems().filter(function (p) { return p[0] === "err"; });
     if (!state.tasks.length) { flash("Add at least one task before exporting.", "err"); return; }
@@ -452,14 +590,31 @@
     L.push('<Project xmlns="http://schemas.microsoft.com/project">');
     L.push("<SaveVersion>14</SaveVersion><Name>" + x(name) + ".xml</Name><Title>" + x(name) + "</Title>");
     L.push("<ScheduleFromStart>1</ScheduleFromStart><StartDate>" + ps + "T08:00:00</StartDate><FinishDate>" + pf + "T17:00:00</FinishDate>");
+    L.push("<CurrencyDigits>2</CurrencyDigits><CurrencySymbol>" + x(curSym().trim()) + "</CurrencySymbol><CurrencyCode>" + curCode() + "</CurrencyCode><CurrencySymbolPosition>" + (/ $/.test(curSym()) ? 2 : 0) + "</CurrencySymbolPosition>");
     L.push("<CalendarUID>1</CalendarUID><DefaultStartTime>08:00:00</DefaultStartTime><DefaultFinishTime>17:00:00</DefaultFinishTime>");
     L.push("<MinutesPerDay>480</MinutesPerDay><MinutesPerWeek>2400</MinutesPerWeek><DaysPerMonth>20</DaysPerMonth><DurationFormat>7</DurationFormat><WorkFormat>2</WorkFormat>");
+    // custom "Leave" field: Task Text1 and Resource Text1
+    L.push("<ExtendedAttributes><ExtendedAttribute><FieldID>188743731</FieldID><FieldName>Text1</FieldName><Alias>Leave</Alias></ExtendedAttribute><ExtendedAttribute><FieldID>205521023</FieldID><FieldName>Text1</FieldName><Alias>Leave</Alias></ExtendedAttribute></ExtendedAttributes>");
     L.push("<Calendars><Calendar><UID>1</UID><Name>Standard</Name><IsBaseCalendar>1</IsBaseCalendar><WeekDays>");
     for (var wd = 1; wd <= 7; wd++) {
       if (wd === 1 || wd === 7) L.push("<WeekDay><DayType>" + wd + "</DayType><DayWorking>0</DayWorking></WeekDay>");
       else L.push("<WeekDay><DayType>" + wd + "</DayType><DayWorking>1</DayWorking><WorkingTimes><WorkingTime><FromTime>08:00:00</FromTime><ToTime>12:00:00</ToTime></WorkingTime><WorkingTime><FromTime>13:00:00</FromTime><ToTime>17:00:00</ToTime></WorkingTime></WorkingTimes></WeekDay>");
     }
-    L.push("</WeekDays></Calendar></Calendars>");
+    L.push("</WeekDays></Calendar>");
+    // one calendar per resource (UID = resource UID + 1), based on Standard, with leave as non-working exceptions
+    state.resources.forEach(function (r, i) {
+      L.push("<Calendar><UID>" + (i + 2) + "</UID><Name>" + x(r) + "</Name><IsBaseCalendar>0</IsBaseCalendar><BaseCalendarUID>1</BaseCalendarUID>");
+      var lv = resLeaves(r);
+      if (lv.length) {
+        L.push("<Exceptions>");
+        lv.forEach(function (l) {
+          L.push("<Exception><EnteredByOccurrences>0</EnteredByOccurrences><TimePeriod><FromDate>" + l.start + "T00:00:00</FromDate><ToDate>" + l.end + "T23:59:00</ToDate></TimePeriod><Occurrences>1</Occurrences><Name>" + x(l.note || "Leave") + "</Name><Type>1</Type><DayWorking>0</DayWorking></Exception>");
+        });
+        L.push("</Exceptions>");
+      }
+      L.push("</Calendar>");
+    });
+    L.push("</Calendars>");
     L.push("<Tasks>");
     L.push("<Task><UID>0</UID><ID>0</ID><Name>" + x(name) + "</Name><Type>1</Type><OutlineLevel>0</OutlineLevel><Start>" + ps + "T08:00:00</Start><Finish>" + pf + "T17:00:00</Finish><Summary>1</Summary></Task>");
     var assigns = [];
@@ -470,19 +625,29 @@
       var st = fmt(sp.s) + "T08:00:00", fin = (t.milestone && !sum) ? fmt(sp.s) + "T08:00:00" : fmt(sp.e) + "T17:00:00";
       L.push("<Task><UID>" + uid + "</UID><ID>" + uid + "</ID><Name>" + x(t.name || "Task " + uid) + "</Name><Type>" + (hasRes ? 1 : 0) + "</Type><OutlineLevel>" + t.level + "</OutlineLevel>");
       L.push("<Start>" + st + "</Start><Finish>" + fin + "</Finish><Duration>PT" + (days * 8) + "H0M0S</Duration><DurationFormat>7</DurationFormat>");
-      L.push((hasRes ? "<Work>PT" + (days * 8) + "H0M0S</Work><EffortDriven>0</EffortDriven>" : "") + "<Milestone>" + (t.milestone && !sum ? 1 : 0) + "</Milestone><Summary>" + (sum ? 1 : 0) + "</Summary>");
+      L.push((hasRes ? "<Work>PT" + (days * 8) + "H0M0S</Work><EffortDriven>0</EffortDriven>" : "") + "<Milestone>" + (t.milestone && !sum ? 1 : 0) + "</Milestone><Summary>" + (sum ? 1 : 0) + "</Summary><Cost>" + cents(taskCost(i)) + "</Cost>");
       if (!sum) L.push("<RemainingDuration>PT" + (days * 8) + "H0M0S</RemainingDuration><ConstraintType>4</ConstraintType><ConstraintDate>" + st + "</ConstraintDate>");
       if (!sum) (t.preds || []).forEach(function (p) {
         var pid = idOf(p.uid); if (!pid) return;
         L.push("<PredecessorLink><PredecessorUID>" + pid + "</PredecessorUID><Type>" + { FF: 0, FS: 1, SF: 2, SS: 3 }[p.type] + "</Type><CrossProject>0</CrossProject><LinkLag>" + (p.lag * 4800) + "</LinkLag><LagFormat>7</LagFormat></PredecessorLink>");
       });
+      var lt = sum ? "" : taskLeaveText(t);
+      if (lt) L.push("<ExtendedAttribute><FieldID>188743731</FieldID><Value>" + x(t.resource + " on leave " + lt) + "</Value></ExtendedAttribute>");
       L.push("</Task>");
-      if (!sum && t.resource && resUid[t.resource]) assigns.push([uid, resUid[t.resource], st, fin, days * 8]);
+      if (!sum && t.resource && resUid[t.resource]) assigns.push([uid, resUid[t.resource], st, fin, days * 8, taskCost(i)]);
     });
     L.push("</Tasks><Resources>");
-    state.resources.forEach(function (r, i) { L.push("<Resource><UID>" + (i + 1) + "</UID><ID>" + (i + 1) + "</ID><Name>" + x(r) + "</Name><Type>1</Type><MaxUnits>1.00</MaxUnits></Resource>"); });
+    state.resources.forEach(function (r, i) {
+      var lv = resLeaves(r).map(function (l) { return leaveText(l) + (l.note ? " " + l.note : ""); }).join("; ");
+      var fmtCode = rateOf(r).unit === "d" ? 3 : 2; // MSPDI rate values are per hour; the format sets how MS Project displays them
+      L.push("<Resource><UID>" + (i + 1) + "</UID><ID>" + (i + 1) + "</ID><Name>" + x(r) + "</Name><Type>1</Type><MaxUnits>1.00</MaxUnits>" +
+        "<StandardRate>" + hourly(r, "std") + "</StandardRate><StandardRateFormat>" + fmtCode + "</StandardRateFormat><Cost>" + cents(resCost(r)) + "</Cost>" +
+        "<OvertimeRate>" + hourly(r, "ovt") + "</OvertimeRate><OvertimeRateFormat>" + fmtCode + "</OvertimeRateFormat>" +
+        "<CostPerUse>" + cents(+rateOf(r).use || 0) + "</CostPerUse><CalendarUID>" + (i + 2) + "</CalendarUID>" +
+        (lv ? "<ExtendedAttribute><FieldID>205521023</FieldID><Value>" + x(lv) + "</Value></ExtendedAttribute>" : "") + "</Resource>");
+    });
     L.push("</Resources><Assignments>");
-    assigns.forEach(function (a, i) { L.push("<Assignment><UID>" + (i + 1) + "</UID><TaskUID>" + a[0] + "</TaskUID><ResourceUID>" + a[1] + "</ResourceUID><Finish>" + a[3] + "</Finish><RemainingWork>PT" + a[4] + "H0M0S</RemainingWork><Start>" + a[2] + "</Start><Units>1</Units><Work>PT" + a[4] + "H0M0S</Work></Assignment>"); });
+    assigns.forEach(function (a, i) { L.push("<Assignment><UID>" + (i + 1) + "</UID><TaskUID>" + a[0] + "</TaskUID><ResourceUID>" + a[1] + "</ResourceUID><Cost>" + cents(a[5]) + "</Cost><Finish>" + a[3] + "</Finish><RemainingWork>PT" + a[4] + "H0M0S</RemainingWork><Start>" + a[2] + "</Start><Units>1</Units><Work>PT" + a[4] + "H0M0S</Work></Assignment>"); });
     L.push("</Assignments></Project>");
     var blob = new Blob([L.join("\n")], { type: "application/xml" });
     var a = document.createElement("a"); a.href = URL.createObjectURL(blob);
@@ -505,7 +670,49 @@
   document.getElementById("resChips").addEventListener("click", function (e) {
     var i = e.target.getAttribute("data-rm"); if (i === null) return;
     var r = state.resources[+i]; state.resources.splice(+i, 1);
-    state.tasks.forEach(function (t) { if (t.resource === r) t.resource = ""; }); save(); render();
+    state.tasks.forEach(function (t) { if (t.resource === r) t.resource = ""; });
+    state.leaves = state.leaves.filter(function (l) { return l.resource !== r; });
+    if (state.rates) delete state.rates[r]; save(); render();
+  });
+  function rateEdit(e) {
+    var f = e.target.getAttribute("data-rf"); if (!f) return;
+    var r = state.resources[+e.target.closest("tr").getAttribute("data-r")], rt = rateOf(r);
+    rt[f] = f === "unit" ? e.target.value : (e.target.value === "" ? "" : Math.max(+e.target.value || 0, 0));
+    state.rates[r] = rt; save(); updateCosts();
+  }
+  document.getElementById("resChips").addEventListener("input", rateEdit);
+  document.getElementById("resChips").addEventListener("change", rateEdit);
+  document.getElementById("currency").addEventListener("change", function (e) { state.currency = e.target.value; save(); render(); });
+  var lvFrom = document.getElementById("leaveFrom"), lvDays = document.getElementById("leaveDays"), lvTo = document.getElementById("leaveTo");
+  function leaveMsg(text, kind) { document.getElementById("leaveMsg").innerHTML = text ? '<div class="msg ' + kind + '">' + esc(text) + "</div>" : ""; }
+  function syncLeaveEnd() { // days -> last day
+    if (!lvFrom.value) return; var s = toWork(parse(lvFrom.value));
+    lvTo.value = fmt(addWork(s, Math.max(+lvDays.value || 1, 1) - 1));
+  }
+  lvFrom.addEventListener("change", function () { syncLeaveEnd(); leaveMsg(""); });
+  lvDays.addEventListener("input", syncLeaveEnd);
+  lvTo.addEventListener("change", function () { // last day -> days
+    if (lvFrom.value && lvTo.value && lvTo.value >= lvFrom.value) lvDays.value = Math.max(workDays(parse(lvFrom.value), parse(lvTo.value)), 1);
+  });
+  document.getElementById("addLeave").addEventListener("click", function () {
+    var r = document.getElementById("leaveRes").value, n = document.getElementById("leaveNote");
+    if (!r) { leaveMsg("Add a resource above before adding leave.", "err"); return; }
+    if (!lvFrom.value) { leaveMsg("Pick the first day of leave.", "err"); return; }
+    if (!lvTo.value) syncLeaveEnd();
+    if (lvTo.value < lvFrom.value) { leaveMsg("The last day is before the first day.", "err"); return; }
+    if (!workDays(parse(lvFrom.value), parse(lvTo.value))) { leaveMsg("That period has no working days (weekend only).", "err"); return; }
+    var l = { resource: r, start: lvFrom.value, end: lvTo.value, note: n.value.trim() };
+    state.leaves.push(l);
+    state.leaves.sort(function (a, b) { return a.start < b.start ? -1 : a.start > b.start ? 1 : 0; });
+    lvFrom.value = lvTo.value = n.value = ""; lvDays.value = 1; flashMsg = null; save(); render();
+    leaveMsg("Added leave for " + r + ": " + leaveText(l) + ".", "ok");
+  });
+  document.getElementById("leaveChips").addEventListener("click", function (e) {
+    var i = e.target.getAttribute("data-rml"), u = e.target.getAttribute("data-rmt");
+    if (i !== null) state.leaves.splice(+i, 1);
+    else if (u !== null) { var t = byUid(+u); if (t) t.leaveStart = t.leaveDays = ""; }
+    else return;
+    leaveMsg(""); save(); render();
   });
   document.getElementById("loadTpl").addEventListener("click", function () { var v = document.getElementById("tplSelect").value; if (v) loadTemplate(v); });
   document.getElementById("addTask").addEventListener("click", addTask);
@@ -524,6 +731,8 @@
     var i = +e.target.closest("tr").getAttribute("data-i"), t = state.tasks[i];
     if (f === "preds") { var r = parsePreds(e.target.value, i); t.preds = r.links; t._bad = r.bad; }
     else if (f === "milestone") { t.milestone = e.target.checked; if (t.milestone) t.end = t.start; }
+    else if (f === "leaveStart") { t.leaveStart = e.target.value; t.leaveDays = t.leaveStart ? (t.leaveDays || 1) : ""; }
+    else if (f === "leaveDays") { t.leaveDays = Math.max(parseInt(e.target.value, 10) || 1, 1); }
     else if (f === "start") { var dur = Math.max(workDays(parse(t.start), parse(t.end)), 1); t.start = e.target.value; if (t.start) t.end = fmt(t.milestone ? parse(t.start) : addWork(toWork(parse(t.start)), dur - 1)); }
     else t[f] = e.target.value;
     flashMsg = null; save(); render();

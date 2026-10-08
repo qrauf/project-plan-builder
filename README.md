@@ -27,6 +27,8 @@ Predecessors are typed straight into a field (`2`, `3SS`, `4FS+2`), successors a
 - **Target end date:** warns if the plan runs late and shows a deadline line on the timeline.
 - **Fix dates from predecessors:** pushes tasks forward so none starts before its dependencies allow.
 - **Checks:** flags unreadable predecessors, dependency loops and tasks that end before they start.
+- **Resource rates:** standard rate, overtime rate (per hour or per day), cost per use and a currency symbol for each resource, with a planned cost per resource and in total. They export to MS Project's Std. Rate, Ovt. Rate and Cost/Use fields so MS Project calculates task costs.
+- **Resource leave:** pick a first day on the calendar and a number of working days, either per resource or directly in a task's **Leave** column (for that task's resource). Overlapping tasks get a warning and the timeline shades the leave days. In MS Project the leave becomes non-working time on that resource's calendar, so their tasks stretch around it, and a **Leave** custom field (Text1) is filled on tasks and resources.
 - **Timeline preview:** a live Gantt view of the plan.
 - **Export to MS Project:** produces an MS Project XML file (MSPDI) with tasks, outline levels, links, lags, milestones, a Mon–Fri calendar, resources and assignments.
 - **Autosave:** work is saved in the browser, with no account or server.
