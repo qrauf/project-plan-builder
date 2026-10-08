@@ -76,6 +76,16 @@ No build step and no dependencies: download the repository and open `index.html`
 - **Start dates:** each task's start goes into MS Project as *Start No Earlier Than*, so linked tasks can move later but never earlier than the date you set.
 - **Tested with:** Microsoft Project 2016. Every task's start, finish, duration and milestone flag was compared after import.
 
+## Contributing
+
+Issues and pull requests are welcome. Ideas: several resources per task, public holiday calendars, Excel/CSV import, printable Gantt charts, translations.
+
+## Support
+
+The tool is free and open source. If it saved you time, you can send a **$2** thank-you by scanning this QR code with your banking or wallet app (also available from **♥ Support** in the app):
+
+<img src="support-qr.jpg" alt="Payment QR code for Abdul Rauf Qureshi" width="240">
+
 ## License
 
 MIT. See [LICENSE](LICENSE).

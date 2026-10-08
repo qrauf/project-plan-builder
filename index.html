@@ -96,6 +96,14 @@
   .g-scale { display: grid; grid-template-columns: 260px 1fr; font-size: 11px; color: var(--muted); }
   .g-scale .ticks { position: relative; height: 18px; min-width: 600px; }
   .g-scale .ticks span { position: absolute; top: 0; transform: translateX(-50%); white-space: nowrap; }
+  .support-btn { margin-left: 10px; padding: 5px 12px; border-radius: 999px; border-color: var(--accent); color: var(--accent); background: var(--accent-soft); font-size: 13px; }
+  .support-btn:hover { background: var(--accent); color: #fff; }
+  dialog.support { border: 1px solid var(--border); border-radius: 14px; padding: 22px; max-width: min(380px, calc(100vw - 32px)); background: var(--surface); color: var(--text); text-align: center; }
+  dialog.support::backdrop { background: rgba(0, 0, 0, .45); }
+  dialog.support h2 { font-size: 17px; margin: 0 0 6px; }
+  dialog.support p { margin: 0 0 12px; color: var(--muted); font-size: 13px; }
+  dialog.support img { width: 100%; max-width: 280px; height: auto; border-radius: 10px; background: #fff; display: block; margin: 0 auto 12px; }
+  dialog.support .amount { font-size: 22px; font-weight: 800; color: var(--accent); margin: 0 0 4px; }
   details summary { cursor: pointer; font-weight: 600; }
   code { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }
   @media (max-width: 700px) { main { padding: 14px 12px 40px; } header { padding: 12px; } .g-row, .g-scale { grid-template-columns: 140px 1fr; } }
@@ -105,7 +113,8 @@
 <header>
   <h1>Project Plan Builder</h1>
   <p>Enter the project, resources and tasks. Export a file that Microsoft Project opens with tasks, links and resources ready.</p>
-  <nav class="links"><a href="https://github.com/qrauf/project-plan-builder" target="_blank" rel="noopener">Source on GitHub</a> · <a href="https://qureshirauf.com/" target="_blank" rel="noopener">qureshirauf.com</a></nav>
+  <nav class="links"><a href="https://github.com/qrauf/project-plan-builder" target="_blank" rel="noopener">Source on GitHub</a> · <a href="https://qureshirauf.com/" target="_blank" rel="noopener">qureshirauf.com</a>
+    <button id="supportBtn" class="support-btn" type="button">♥ Support · $2</button></nav>
 </header>
 
 <main>
@@ -196,6 +205,16 @@
     <div class="gantt" id="gantt"></div>
   </section>
 </main>
+
+<dialog class="support" id="supportDlg" aria-labelledby="supportTitle">
+  <h2 id="supportTitle">Support Project Plan Builder</h2>
+  <p>This tool is free and open source. If it saved you time, a small thank-you helps keep it growing.</p>
+  <p class="amount">$2</p>
+  <img src="support-qr.jpg" alt="Payment QR code for Abdul Rauf Qureshi" width="714" height="914" loading="lazy">
+  <p>Scan with your banking or wallet app to send money.</p>
+  <p>You can also help by sharing the tool or contributing on <a href="https://github.com/qrauf/project-plan-builder" target="_blank" rel="noopener">GitHub</a>.</p>
+  <form method="dialog"><button class="primary" type="submit">Close</button></form>
+</dialog>
 
 <script>
 (function () {
@@ -825,6 +844,11 @@
   document.getElementById("addTask").addEventListener("click", addTask);
   document.getElementById("fixDates").addEventListener("click", fixDates);
   document.getElementById("exportXml").addEventListener("click", exportXml);
+  document.getElementById("supportBtn").addEventListener("click", function () {
+    var d = document.getElementById("supportDlg");
+    if (d.showModal) d.showModal(); else window.open("support-qr.jpg", "_blank");
+  });
+  document.getElementById("supportDlg").addEventListener("click", function (e) { if (e.target === this) this.close(); }); // click outside closes
   var importInput = document.getElementById("importFile");
   document.getElementById("importXml").addEventListener("click", function () { importInput.value = ""; importInput.click(); });
   importInput.addEventListener("change", function () { if (importInput.files[0]) importFile(importInput.files[0]); });
