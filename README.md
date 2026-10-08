@@ -31,6 +31,7 @@ Predecessors are typed straight into a field (`2`, `3SS`, `4FS+2`), successors a
 - **Resource leave:** pick a first day on the calendar and a number of working days, either per resource or directly in a task's **Leave** column (for that task's resource). Overlapping tasks get a warning and the timeline shades the leave days. In MS Project the leave becomes non-working time on that resource's calendar, so their tasks stretch around it, and a **Leave** custom field (Text1) is filled on tasks and resources.
 - **Timeline preview:** a live Gantt view of the plan.
 - **Export to MS Project:** produces an MS Project XML file (MSPDI) with tasks, outline levels, links, lags, milestones, a Mon–Fri calendar, resources and assignments.
+- **Import:** load a plan downloaded earlier, or one saved from MS Project as XML, and keep editing it.
 - **Autosave:** work is saved in the browser, with no account or server.
 
 ![Timeline preview](docs/timeline.png)
@@ -50,11 +51,20 @@ Predecessors are typed straight into a field (`2`, `3SS`, `4FS+2`), successors a
 
 ## Opening the plan in MS Project
 
-1. Click **Export to MS Project (.xml)**.
+1. Click **Download for MS Project (.xml)**.
 2. In MS Project: **File → Open**, set the file type to **XML**, and pick the file.
 3. Save it as `.mpp`.
 
 On Windows you can skip the dialogs: double-click **`Open-In-Project.bat`**. It opens the newest exported plan from your Downloads folder in MS Project and saves it as `.mpp` next to it.
+
+## Editing a plan later
+
+Click **Import plan (.xml)**, or drag the file onto the page, to load a plan back into the builder and keep editing it. This works for:
+
+- a file you downloaded from the builder, and
+- a plan edited in MS Project: **File → Save As**, choose **XML Format (\*.xml)**, then import that file. Browsers can't read `.mpp` files directly.
+
+Tasks, phases, dates, links and lags, milestones, resources, rates, currency and resource leave are brought back. The builder has one resource per task, so if MS Project has several on a task, the one with the most work is kept. Lags are rounded to whole days and material or cost resources are skipped; the import message lists anything that was changed.
 
 ## Run it locally
 

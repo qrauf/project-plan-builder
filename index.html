@@ -166,7 +166,9 @@
       <button id="addTask">+ Add task</button>
       <button id="fixDates" title="Move tasks so they respect their predecessors">Fix dates from predecessors</button>
       <span class="spacer"></span>
-      <button id="exportXml" class="primary">Export to MS Project (.xml)</button>
+      <button id="importXml" title="Open a plan saved from this tool or from MS Project (File → Save As → XML) to keep editing it">Import plan (.xml)</button>
+      <input type="file" id="importFile" accept=".xml,.mpp,application/xml,text/xml" hidden>
+      <button id="exportXml" class="primary" title="Download the plan as an MS Project XML file">Download for MS Project (.xml)</button>
     </div>
     <div class="table-wrap">
       <table>
@@ -575,6 +577,111 @@
     g.innerHTML = rows + '<div class="g-body">' + line + body + "</div>";
   }
 
+  /* ---------- MS Project XML (MSPDI) import ---------- */
+  function kids(el, name) { var out = []; if (el) for (var c = el.firstElementChild; c; c = c.nextElementSibling) if (c.localName === name) out.push(c); return out; }
+  function kid(el, name) { return kids(el, name)[0] || null; }
+  function val(el, name) { var k = kid(el, name); return k ? k.textContent.trim() : ""; }
+  function day(dt) { return dt ? dt.slice(0, 10) : ""; }
+  function importMspdi(text) {
+    var doc = new DOMParser().parseFromString(text, "application/xml"), root = doc.documentElement;
+    if (doc.getElementsByTagName("parsererror").length || !root || root.localName !== "Project") throw new Error("This isn’t an MS Project XML file.");
+    var notes = [], ns = { name: "", resources: [], leaves: [], rates: {}, tasks: [], nextUid: 1, projStart: "", projFinish: state.projFinish || "", currency: "" };
+    ns.name = val(root, "Title") || val(root, "Name").replace(/\.xml$/i, "");
+
+    // currency
+    var code = val(root, "CurrencyCode"), sym = val(root, "CurrencySymbol");
+    CURRENCIES.forEach(function (c) { if (!ns.currency && (c[0] === code || (sym && c[1].trim() === sym))) ns.currency = c[0]; });
+    if (!ns.currency) { ns.currency = "USD"; if (code || sym) notes.push("Currency " + (code || sym) + " isn’t in the list, so USD is used."); }
+
+    // calendars: non-working exceptions become leave for the resources that use them
+    var calLeave = {};
+    kids(kid(root, "Calendars"), "Calendar").forEach(function (cal) {
+      var list = [];
+      kids(kid(cal, "Exceptions"), "Exception").forEach(function (ex) {
+        if (val(ex, "DayWorking") === "1") return; var tp = kid(ex, "TimePeriod");
+        if (tp) list.push({ start: day(val(tp, "FromDate")), end: day(val(tp, "ToDate")), note: val(ex, "Name") });
+      });
+      if (!list.length) kids(kid(cal, "WeekDays"), "WeekDay").forEach(function (wd) { // older files keep exceptions as DayType 0
+        if (val(wd, "DayType") !== "0" || val(wd, "DayWorking") === "1") return; var tp = kid(wd, "TimePeriod");
+        if (tp) list.push({ start: day(val(tp, "FromDate")), end: day(val(tp, "ToDate")), note: "" });
+      });
+      calLeave[val(cal, "UID")] = { base: val(cal, "IsBaseCalendar") === "1", list: list.filter(function (l) { return l.start && l.end; }) };
+    });
+
+    // resources
+    var resName = {}, skipped = 0;
+    kids(kid(root, "Resources"), "Resource").forEach(function (r) {
+      var name = val(r, "Name"); if (!name || val(r, "IsNull") === "1") return;
+      if (val(r, "Type") && val(r, "Type") !== "1") { skipped++; return; } // material and cost resources aren't supported
+      if (ns.resources.indexOf(name) >= 0) return;
+      ns.resources.push(name); resName[val(r, "UID")] = name;
+      var perDay = val(r, "StandardRateFormat") === "3", std = +val(r, "StandardRate") || 0, ovt = +val(r, "OvertimeRate") || 0, use = (+val(r, "CostPerUse") || 0) / 100;
+      function rv(v) { v = perDay ? v * 8 : v; return v ? Math.round(v * 100) / 100 : ""; }
+      ns.rates[name] = { std: rv(std), ovt: rv(ovt), unit: perDay ? "d" : "h", use: use ? Math.round(use * 100) / 100 : "" };
+      var cl = calLeave[val(r, "CalendarUID")];
+      if (cl && !cl.base) cl.list.forEach(function (l) { ns.leaves.push({ resource: name, start: l.start, end: l.end, note: l.note === "Leave" ? "" : l.note }); });
+    });
+    if (skipped) notes.push(skipped + " material/cost resource(s) were skipped.");
+
+    // tasks
+    var uidMap = {}, raw = [];
+    kids(kid(root, "Tasks"), "Task").forEach(function (t) {
+      var lvl = +val(t, "OutlineLevel"); if (val(t, "IsNull") === "1" || val(t, "UID") === "0" || lvl < 1) return;
+      raw.push({ el: t, id: +val(t, "ID") || 0, level: lvl });
+    });
+    raw.sort(function (a, b) { return a.id - b.id; });
+    var prevLevel = 0;
+    raw.forEach(function (r) {
+      var t = r.el, ms = val(t, "Milestone") === "1", level = Math.min(r.level, prevLevel + 1); prevLevel = level;
+      var nt = { uid: ns.nextUid++, name: val(t, "Name"), level: level, resource: "", milestone: ms, preds: [], start: day(val(t, "Start")), end: day(ms ? val(t, "Start") : val(t, "Finish")), _links: kids(t, "PredecessorLink") };
+      uidMap[val(t, "UID")] = nt.uid; ns.tasks.push(nt);
+    });
+    var lagOdd = 0;
+    ns.tasks.forEach(function (nt) {
+      nt.preds = nt._links.map(function (pl) {
+        var pu = uidMap[val(pl, "PredecessorUID")]; if (!pu || pu === nt.uid) return null;
+        var fmtc = +val(pl, "LagFormat"), lag = (+val(pl, "LinkLag") || 0) / 4800; // tenths of a minute → 8-hour days
+        if (fmtc === 19 || fmtc === 20) { if (+val(pl, "LinkLag")) lagOdd++; lag = 0; } // percentage lags can't be shown in days
+        else if (lag % 1) { lagOdd++; lag = Math.round(lag); }
+        return { uid: pu, type: { 0: "FF", 1: "FS", 2: "SF", 3: "SS" }[val(pl, "Type")] || "FS", lag: lag };
+      }).filter(Boolean);
+      delete nt._links;
+    });
+    if (lagOdd) notes.push(lagOdd + " link lag(s) were rounded to whole days.");
+
+    // assignments: one resource per task here, so keep the one with the most work
+    var best = {}, multi = 0;
+    kids(kid(root, "Assignments"), "Assignment").forEach(function (a) {
+      var tu = uidMap[val(a, "TaskUID")], rn = resName[val(a, "ResourceUID")]; if (!tu || !rn) return;
+      var w = val(a, "Work"), m = /PT(\d+(?:\.\d+)?)H/.exec(w), hrs = m ? +m[1] : 0;
+      if (best[tu]) { multi++; if (hrs <= best[tu].hrs) return; }
+      best[tu] = { name: rn, hrs: hrs };
+    });
+    ns.tasks.forEach(function (nt) { if (best[nt.uid]) nt.resource = best[nt.uid].name; });
+    if (multi) notes.push(multi + " extra resource assignment(s) were dropped: each task keeps the resource with the most work.");
+
+    ns.tasks.forEach(function (nt, i) { // summary rows take their dates from sub-tasks
+      var next = ns.tasks[i + 1]; if (next && next.level > nt.level) { nt.start = nt.end = ""; nt.resource = ""; nt.milestone = false; nt.preds = []; }
+    });
+    var first = null; ns.tasks.forEach(function (nt) { if (nt.start && (!first || nt.start < first)) first = nt.start; });
+    ns.projStart = first || day(val(root, "StartDate"));
+    if (!ns.tasks.length) throw new Error("No tasks found in this file.");
+    return { state: ns, notes: notes };
+  }
+  function importFile(file) {
+    if (/\.mpp$/i.test(file.name)) { flash("Browsers can’t read .mpp files. In MS Project use File → Save As and choose “XML Format (*.xml)”, then import that file.", "err"); return; }
+    var reader = new FileReader();
+    reader.onload = function () {
+      var res;
+      try { res = importMspdi(String(reader.result)); } catch (err) { flash("Couldn’t import “" + file.name + "”: " + err.message, "err"); return; }
+      if (state.tasks.length && !confirm("Replace the current plan with “" + file.name + "”?")) return;
+      state = res.state; save(); render();
+      flash("Imported “" + file.name + "”: " + state.tasks.length + " tasks, " + state.resources.length + " resources" + (state.leaves.length ? ", " + state.leaves.length + " leave period(s)" : "") + "." + (res.notes.length ? " " + res.notes.join(" ") : ""), res.notes.length ? "warn" : "ok");
+    };
+    reader.onerror = function () { flash("Couldn’t read “" + file.name + "”.", "err"); };
+    reader.readAsText(file);
+  }
+
   /* ---------- MS Project XML (MSPDI) export ---------- */
   function x(s) { return esc(s).replace(/'/g, "&apos;"); }
   function cents(v) { return Math.round((v || 0) * 100); } // MSPDI stores currency amounts in hundredths (rates are plain per-hour values)
@@ -718,6 +825,11 @@
   document.getElementById("addTask").addEventListener("click", addTask);
   document.getElementById("fixDates").addEventListener("click", fixDates);
   document.getElementById("exportXml").addEventListener("click", exportXml);
+  var importInput = document.getElementById("importFile");
+  document.getElementById("importXml").addEventListener("click", function () { importInput.value = ""; importInput.click(); });
+  importInput.addEventListener("change", function () { if (importInput.files[0]) importFile(importInput.files[0]); });
+  document.addEventListener("dragover", function (e) { if (e.dataTransfer && Array.prototype.indexOf.call(e.dataTransfer.types, "Files") >= 0) e.preventDefault(); });
+  document.addEventListener("drop", function (e) { var f = e.dataTransfer && e.dataTransfer.files[0]; if (f) { e.preventDefault(); importFile(f); } });
 
   var body = document.getElementById("taskBody");
   body.addEventListener("click", function (e) {
