@@ -597,7 +597,12 @@
     var total = Math.max((e - s) / 864e5 + 1, 1);
     function pct(d) { return ((d - s) / 864e5) / total * 100; }
     var ticks = "", step = Math.max(Math.ceil(total / 10 / 7) * 7, 7);
-    for (var d = 0; d <= total; d += step) { var dt = addDays(s, d); ticks += '<span style="left:' + pct(dt) + '%">' + dt.toISOString().slice(5, 10) + "</span>"; }
+    var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], lastYear = null;
+    for (var d = 0; d <= total; d += step) { // "19 Oct", with the year on the first label and whenever it changes
+      var dt = addDays(s, d), y = dt.getUTCFullYear();
+      var label = dt.getUTCDate() + " " + MON[dt.getUTCMonth()] + (y !== lastYear ? " " + y : ""); lastYear = y;
+      ticks += '<span style="left:' + pct(dt) + '%" title="' + fmt(dt) + '">' + label + "</span>";
+    }
     var rows = '<div class="g-scale"><div></div><div class="ticks">' + ticks + "</div></div>", body = "";
     state.tasks.forEach(function (t, i) {
       var sp = spanOf(i), bar = "";
