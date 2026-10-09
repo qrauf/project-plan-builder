@@ -30,6 +30,7 @@ Predecessors are typed straight into a field (`2`, `3SS`, `4FS+2`), successors a
 - **Resource rates:** standard rate, overtime rate (per hour or per day), cost per use and a currency symbol for each resource, with a planned cost per resource and in total. They export to MS Project's Std. Rate, Ovt. Rate and Cost/Use fields so MS Project calculates task costs.
 - **Resource leave:** pick a first day on the calendar and a number of working days, either per resource or directly in a task's **Leave** column (for that task's resource). Overlapping tasks get a warning and the timeline shades the leave days. In MS Project the leave becomes non-working time on that resource's calendar, so their tasks stretch around it, and a **Leave** custom field (Text1) is filled on tasks and resources.
 - **Timeline preview:** a live Gantt view of the plan.
+- **Download PDF:** a landscape A4 report with a project summary, the task list, resources with rates and leave, and a Gantt timeline, ready to share with people who don't use MS Project.
 - **Export to MS Project:** produces an MS Project XML file (MSPDI) with tasks, outline levels, links, lags, milestones, a Mon–Fri calendar, resources and assignments.
 - **Import:** load a plan downloaded earlier, or one saved from MS Project as XML, and keep editing it.
 - **Autosave:** work is saved in the browser, with no account or server.
@@ -68,7 +69,7 @@ Tasks, phases, dates, links and lags, milestones, resources, rates, currency and
 
 ## Run it locally
 
-No build step and no dependencies: download the repository and open `index.html` in any modern browser.
+No build step and no dependencies: download the repository and open `index.html` in any modern browser. The only exception is **Download PDF**, which loads [jsPDF](https://github.com/parallax/jsPDF) from cdnjs the first time it is used, so it needs an internet connection.
 
 ## Notes
 

@@ -181,6 +181,7 @@
       <span class="spacer"></span>
       <button id="importXml" title="Open a plan saved from this tool or from MS Project (File → Save As → XML) to keep editing it">Import plan (.xml)</button>
       <input type="file" id="importFile" accept=".xml,.mpp,application/xml,text/xml" hidden>
+      <button id="exportPdf" title="Download the plan as a PDF: task list, resources and timeline">Download PDF</button>
       <button id="exportXml" class="primary" title="Download the plan as an MS Project XML file">Download for MS Project (.xml)</button>
     </div>
     <div class="table-wrap">
@@ -227,6 +228,7 @@
   var state = { name: "", resources: [], leaves: [], tasks: [], nextUid: 1, projStart: "", projFinish: "" };
 
   /* ---------- date helpers (UTC, Mon–Fri) ---------- */
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   function parse(d) { if (!d) return null; var p = d.split("-"); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])); }
   function fmt(dt) { return dt.toISOString().slice(0, 10); }
   function isWork(dt) { var w = dt.getUTCDay(); return w !== 0 && w !== 6; }
@@ -597,10 +599,10 @@
     var total = Math.max((e - s) / 864e5 + 1, 1);
     function pct(d) { return ((d - s) / 864e5) / total * 100; }
     var ticks = "", step = Math.max(Math.ceil(total / 10 / 7) * 7, 7);
-    var MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], lastYear = null;
+    var lastYear = null;
     for (var d = 0; d <= total; d += step) { // "19 Oct", with the year on the first label and whenever it changes
       var dt = addDays(s, d), y = dt.getUTCFullYear();
-      var label = dt.getUTCDate() + " " + MON[dt.getUTCMonth()] + (y !== lastYear ? " " + y : ""); lastYear = y;
+      var label = dt.getUTCDate() + " " + MONTHS[dt.getUTCMonth()] + (y !== lastYear ? " " + y : ""); lastYear = y;
       ticks += '<span style="left:' + pct(dt) + '%" title="' + fmt(dt) + '">' + label + "</span>";
     }
     var rows = '<div class="g-scale"><div></div><div class="ticks">' + ticks + "</div></div>", body = "";
@@ -619,6 +621,157 @@
     });
     var line = target ? '<div class="g-row" style="position:absolute;inset:0;border:0;pointer-events:none"><div></div><div style="position:relative;height:100%"><div class="g-deadline" style="left:' + pct(addDays(target, 1)) + '%" title="Target end ' + fmt(target) + '"></div></div></div>' : "";
     g.innerHTML = rows + '<div class="g-body">' + line + body + "</div>";
+  }
+
+  /* ---------- PDF export (jsPDF, loaded on first use) ---------- */
+  var PDF_LIBS = [
+    ["https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js", "sha512-qZvrmS2ekKPF2mSznTQsxqPgnpkI4DNTlrdUmTzrDgektczlKNRRhy5X5AAOnx5S09ydFYWWNSfcEqDTTHgtNA=="],
+    ["https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js", "sha512-2/YdOMV+YNpanLCF5MdQwaoFRVbTmrJ4u4EpqS/USXAQNUDgI5uwYi6J98WVtJKcfe1AbgerygzDFToxAlOGEQ=="]
+  ];
+  var pdfLoading = null;
+  function loadPdfLibs() {
+    if (window.jspdf && window.jspdf.jsPDF && window.jspdf.jsPDF.API.autoTable) return Promise.resolve();
+    if (pdfLoading) return pdfLoading;
+    pdfLoading = PDF_LIBS.reduce(function (p, lib) {
+      return p.then(function () {
+        return new Promise(function (ok, fail) {
+          var s = document.createElement("script"); s.src = lib[0]; s.integrity = lib[1]; s.crossOrigin = "anonymous";
+          s.onload = ok; s.onerror = function () { pdfLoading = null; fail(new Error("load")); }; document.head.appendChild(s);
+        });
+      });
+    }, Promise.resolve());
+    return pdfLoading;
+  }
+  function pdfDate(d) { if (!d) return ""; if (typeof d === "string") d = parse(d); return d.getUTCDate() + " " + MONTHS[d.getUTCMonth()] + " " + d.getUTCFullYear(); }
+  var PDF_BAD = /[^\x00-\xFF–—‘’“”•…€™]/g; // built-in PDF fonts cover Latin-1 plus these
+  function pdfText(s) { return String(s == null ? "" : s).replace(/→/g, "to").replace(PDF_BAD, "?"); }
+  function pdfRange(a, b) { return a === b ? pdfDate(a) : pdfDate(a) + " to " + pdfDate(b); }
+  function pdfMoney(v) {
+    var sym = curSym(), tag = sym.replace(PDF_BAD, "") !== sym ? curCode() + " " : sym;
+    return tag + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function exportPdf() {
+    if (!state.tasks.length) { flash("Add at least one task before downloading a PDF.", "err"); return; }
+    var btn = document.getElementById("exportPdf"); btn.disabled = true; btn.textContent = "Preparing PDF…";
+    loadPdfLibs().then(function () { buildPdf(); }, function () {
+      flash("Couldn’t load the PDF library (are you offline?). You can still use your browser’s Print → Save as PDF.", "err");
+    }).then(function () { btn.disabled = false; btn.textContent = "Download PDF"; });
+  }
+  function buildPdf() {
+    var doc = new window.jspdf.jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+    var W = 297, H = 210, M = 12, TEAL = [15, 127, 129], INK = [24, 33, 31], MUTED = [91, 107, 105], name = state.name.trim() || "Project Plan";
+    var span = planSpan(), target = state.projFinish ? parse(state.projFinish) : null, hasCost = false, total = 0;
+    state.resources.forEach(function (r) { var c = resCost(r); if (c) { total += c; } if (c !== null && (hourly(r, "std") || +rateOf(r).use)) hasCost = true; });
+
+    // title block
+    doc.setFont("helvetica", "bold"); doc.setFontSize(18); doc.setTextColor.apply(doc, INK); doc.text(pdfText(name), M, M + 6);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor.apply(doc, MUTED);
+    var facts = [];
+    if (span.s && span.e) facts.push(pdfDate(span.s) + " to " + pdfDate(span.e) + " (" + workDays(span.s, span.e) + " working days)");
+    if (target) facts.push("Target end " + pdfDate(target) + (span.e && span.e > target ? " (" + workDays(addDays(target, 1), span.e) + " working day(s) late)" : " (on track)"));
+    facts.push(state.tasks.length + " tasks, " + state.resources.length + " resources");
+    if (hasCost) facts.push("Planned cost " + pdfMoney(total));
+    doc.text(facts.join("   ·   "), M, M + 13);
+    doc.text("Generated " + pdfDate(today()) + " with Project Plan Builder", M, M + 18.5);
+
+    // task table
+    var rows = state.tasks.map(function (t, i) {
+      var sum = isSummary(i), sp = spanOf(i), c = taskCost(i);
+      var days = sum ? workDays(sp.s, sp.e) : (t.milestone ? 0 : workDays(parse(t.start), parse(t.end)));
+      return [i + 1, new Array(t.level).join("    ") + pdfText(t.name || "(unnamed)"), sum ? "" : pdfText(t.resource), pdfDate(sp.s), pdfDate(sp.e), days,
+        sum ? "" : predText(t), successors(t.uid), (!sum && t.milestone) ? "Yes" : "", sum ? "" : taskLeaves(t).map(function (o) { return pdfRange(o.leave.start, o.leave.end) + " (" + o.days + "d)"; }).join("; "), c === null ? "" : pdfMoney(c)];
+    });
+    var head = ["ID", "Task", "Resource", "Start", "End", "Days", "Predecessors", "Successors", "Milestone", "Leave", "Cost"];
+    if (!hasCost) { head.pop(); rows.forEach(function (r) { r.pop(); }); }
+    doc.autoTable({
+      head: [head], body: rows, startY: M + 24, margin: { left: M, right: M, bottom: 14 }, theme: "grid",
+      styles: { font: "helvetica", fontSize: 8, cellPadding: 1.6, textColor: INK, lineColor: [223, 230, 229], lineWidth: 0.2, overflow: "linebreak" },
+      headStyles: { fillColor: TEAL, textColor: 255, fontStyle: "bold" },
+      columnStyles: { 0: { halign: "right", cellWidth: 9 }, 1: { cellWidth: 70 }, 5: { halign: "right", cellWidth: 11 }, 8: { halign: "center", cellWidth: 16 }, 10: { halign: "right" } },
+      didParseCell: function (d) { if (d.section === "body" && isSummary(d.row.index)) { d.cell.styles.fontStyle = "bold"; d.cell.styles.fillColor = [238, 244, 244]; } }
+    });
+
+    // resources table
+    if (state.resources.length) {
+      var y = doc.lastAutoTable.finalY + 10; if (y > H - 40) { doc.addPage(); y = M + 6; }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor.apply(doc, INK); doc.text("Resources", M, y);
+      doc.autoTable({
+        head: [["Resource", "Standard rate", "Overtime rate", "Rate per", "Cost per use", "Planned cost", "Leave"]],
+        body: state.resources.map(function (r) {
+          var rt = rateOf(r), c = resCost(r);
+          return [pdfText(r), rt.std === "" ? "" : pdfMoney(+rt.std), rt.ovt === "" ? "" : pdfMoney(+rt.ovt), rt.unit === "d" ? "day" : "hour", rt.use === "" ? "" : pdfMoney(+rt.use),
+            c === null ? "no tasks" : pdfMoney(c), pdfText(resLeaves(r).map(function (l) { return pdfRange(l.start, l.end) + (l.note && l.note !== "Leave" ? " (" + l.note + ")" : ""); }).join("; "))];
+        }),
+        startY: y + 3, margin: { left: M, right: M, bottom: 14 }, theme: "grid",
+        styles: { font: "helvetica", fontSize: 8, cellPadding: 1.6, textColor: INK, lineColor: [223, 230, 229], lineWidth: 0.2 },
+        headStyles: { fillColor: TEAL, textColor: 255, fontStyle: "bold" },
+        columnStyles: { 1: { halign: "right" }, 2: { halign: "right" }, 4: { halign: "right" }, 5: { halign: "right" }, 6: { cellWidth: 90 } }
+      });
+    }
+
+    // timeline
+    if (span.s && span.e) drawPdfGantt(doc, span.s, target && target > span.e ? target : span.e, target, { W: W, H: H, M: M, TEAL: TEAL, INK: INK, MUTED: MUTED });
+
+    // footer on every page
+    var pages = doc.getNumberOfPages();
+    for (var p = 1; p <= pages; p++) {
+      doc.setPage(p); doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor.apply(doc, MUTED);
+      doc.text(pdfText(name) + " · Project Plan Builder · qureshirauf.com/tools/project-plan-builder", M, H - 6);
+      doc.text("Page " + p + " of " + pages, W - M, H - 6, { align: "right" });
+    }
+    var file = name.replace(/[\\/:*?"<>|]+/g, "-") + " - Project Plan.pdf";
+    doc.save(file);
+    flash("Downloaded “" + file + "”.", "ok");
+  }
+  function drawPdfGantt(doc, s, e, target, k) {
+    var nameW = 72, x0 = k.M + nameW, x1 = k.W - k.M, rowH = 5.6, top = k.M + 18, bottom = k.H - 14;
+    var total = Math.max((e - s) / 864e5 + 1, 1), step = Math.max(Math.ceil(total / 10 / 7) * 7, 7);
+    function X(d) { return x0 + ((d - s) / 864e5) / total * (x1 - x0); }
+    function header() {
+      doc.addPage();
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor.apply(doc, k.INK); doc.text("Timeline", k.M, k.M + 6);
+      // legend
+      var lx = k.M + 30, ly = k.M + 5; doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor.apply(doc, k.MUTED);
+      doc.setFillColor.apply(doc, k.TEAL); doc.roundedRect(lx, ly - 1.8, 6, 2.4, 0.5, 0.5, "F"); doc.text("Task", lx + 7.5, ly); lx += 20;
+      doc.setFillColor.apply(doc, k.INK); doc.rect(lx, ly - 1.2, 6, 1.2, "F"); doc.text("Phase", lx + 7.5, ly); lx += 22;
+      doc.setFillColor(181, 71, 8); doc.triangle(lx, ly - 0.6, lx + 1.5, ly - 2.1, lx + 3, ly - 0.6, "F"); doc.triangle(lx, ly - 0.6, lx + 1.5, ly + 0.9, lx + 3, ly - 0.6, "F"); doc.text("Milestone", lx + 4.5, ly); lx += 24;
+      doc.setGState(new doc.GState({ opacity: 0.45 })); doc.setFillColor(245, 158, 11); doc.rect(lx, ly - 2.2, 6, 3, "F"); doc.setGState(new doc.GState({ opacity: 1 })); doc.text("Leave", lx + 7.5, ly); lx += 22;
+      if (target) { doc.setDrawColor(180, 35, 24); doc.setLineWidth(0.4); doc.setLineDashPattern([1.2, 1], 0); doc.line(lx + 1, ly - 2.4, lx + 1, ly + 0.8); doc.setLineDashPattern([], 0); doc.text("Target end", lx + 3, ly); }
+      doc.setFontSize(7);
+      var lastYear = null;
+      for (var d = 0; d <= total; d += step) {
+        var dt = addDays(s, d), yr = dt.getUTCFullYear(), x = X(dt);
+        doc.text(dt.getUTCDate() + " " + MONTHS[dt.getUTCMonth()] + (yr !== lastYear ? " " + yr : ""), x, top - 3, { align: d === 0 ? "left" : "center" }); lastYear = yr;
+        doc.setDrawColor(230, 236, 235); doc.setLineWidth(0.15); doc.line(x, top - 1.5, x, bottom);
+      }
+      return top;
+    }
+    var y = header();
+    state.tasks.forEach(function (t, i) {
+      if (y + rowH > bottom) { deadline(); y = header(); }
+      var sum = isSummary(i), sp = spanOf(i), mid = y + rowH / 2;
+      doc.setFont("helvetica", sum ? "bold" : "normal"); doc.setFontSize(7.5); doc.setTextColor.apply(doc, k.INK);
+      var label = doc.splitTextToSize((i + 1) + ". " + pdfText(t.name || "(unnamed)"), nameW - 4 - (t.level - 1) * 3)[0];
+      doc.text(label, k.M + (t.level - 1) * 3, mid + 1.2);
+      if (sp.s && sp.e) {
+        if (!sum && t.milestone) { var mx = X(sp.s) + 0.3; doc.setFillColor(181, 71, 8); doc.triangle(mx - 1.6, mid, mx, mid - 1.6, mx + 1.6, mid, "F"); doc.triangle(mx - 1.6, mid, mx, mid + 1.6, mx + 1.6, mid, "F"); }
+        else if (sum) { doc.setFillColor.apply(doc, k.INK); doc.rect(X(sp.s), mid - 0.6, Math.max(X(addDays(sp.e, 1)) - X(sp.s), 0.6), 1.2, "F"); }
+        else { doc.setFillColor.apply(doc, k.TEAL); doc.roundedRect(X(sp.s), mid - 1.3, Math.max(X(addDays(sp.e, 1)) - X(sp.s), 0.8), 2.6, 0.6, 0.6, "F"); }
+      }
+      if (!sum && t.resource) resLeaves(t.resource).forEach(function (l) { // leave: translucent orange band over the row
+        var a = parse(l.start), b = parse(l.end); if (b < s || a > e) return; if (a < s) a = s; if (b > e) b = e;
+        doc.setGState(new doc.GState({ opacity: 0.45 })); doc.setFillColor(245, 158, 11);
+        doc.rect(X(a), y + 0.5, X(addDays(b, 1)) - X(a), rowH - 1, "F"); doc.setGState(new doc.GState({ opacity: 1 }));
+      });
+      doc.setDrawColor(235, 240, 239); doc.setLineWidth(0.1); doc.line(k.M, y + rowH, x1, y + rowH);
+      y += rowH;
+    });
+    deadline();
+    function deadline() {
+      if (!target) return; var x = X(addDays(target, 1));
+      doc.setDrawColor(180, 35, 24); doc.setLineWidth(0.4); doc.setLineDashPattern([1.2, 1], 0); doc.line(x, top - 1.5, x, y); doc.setLineDashPattern([], 0);
+      doc.setFontSize(6.5); doc.setTextColor(180, 35, 24); doc.text("Target end", x - 1, y + 3, { align: "right" });
+    }
   }
 
   /* ---------- MS Project XML (MSPDI) import ---------- */
@@ -869,6 +1022,7 @@
   document.getElementById("addTask").addEventListener("click", addTask);
   document.getElementById("fixDates").addEventListener("click", fixDates);
   document.getElementById("exportXml").addEventListener("click", exportXml);
+  document.getElementById("exportPdf").addEventListener("click", exportPdf);
   document.getElementById("supportBtn").addEventListener("click", function () {
     var d = document.getElementById("supportDlg");
     if (d.showModal) d.showModal(); else window.open("support-qr.jpg", "_blank");
