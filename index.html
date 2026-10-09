@@ -40,6 +40,7 @@
   button:hover { border-color: var(--accent); color: var(--accent); }
   button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   button.primary:hover { filter: brightness(1.08); color: #fff; }
+  button:disabled { opacity: .6; cursor: progress; }
   button.icon { padding: 3px 7px; font-size: 13px; line-height: 1; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
   .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 4px 6px 4px 12px; font-weight: 600; }
@@ -179,9 +180,9 @@
       <button id="addTask">+ Add task</button>
       <button id="fixDates" title="Move tasks so they respect their predecessors">Fix dates from predecessors</button>
       <span class="spacer"></span>
-      <button id="importXml" title="Open a plan saved from this tool or from MS Project (File → Save As → XML) to keep editing it">Import plan (.xml)</button>
+      <button id="importXml" class="primary" title="Open a plan saved from this tool or from MS Project (File → Save As → XML) to keep editing it">Import plan (.xml)</button>
       <input type="file" id="importFile" accept=".xml,.mpp,application/xml,text/xml" hidden>
-      <button id="exportPdf" title="Download the plan as a PDF: task list, resources and timeline">Download PDF</button>
+      <button id="exportPdf" class="primary" title="Download the plan as a PDF: task list, resources and timeline">Download PDF</button>
       <button id="exportXml" class="primary" title="Download the plan as an MS Project XML file">Download for MS Project (.xml)</button>
     </div>
     <div class="table-wrap">
