@@ -21,11 +21,13 @@
   body { margin: 0; font: 14px/1.45 "Segoe UI", system-ui, -apple-system, Arial, sans-serif; background: var(--bg); color: var(--text); }
   header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
   header h1 { font-size: 18px; margin: 0; }
+  .home-link { display: inline-flex; align-items: center; padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); text-decoration: none; font-weight: 600; font-size: 13px; white-space: nowrap; }
+  .home-link:hover { border-color: var(--accent); color: var(--accent); }
   header p { margin: 0; color: var(--muted); flex: 1; }
   header .links { font-size: 13px; white-space: nowrap; }
   header .links a { color: var(--accent); text-decoration: none; font-weight: 600; }
   header .links a:hover { text-decoration: underline; }
-  main { max-width: 1400px; margin: 0 auto; padding: 20px 24px 60px; display: grid; gap: 18px; }
+  main { max-width: 1400px; margin: 0 auto; padding: 20px 24px 60px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
   .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; }
   .card h2 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
   .step { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; }
@@ -106,14 +108,15 @@
   dialog.support .amount { font-size: 22px; font-weight: 800; color: var(--accent); margin: 0 0 4px; }
   details summary { cursor: pointer; font-weight: 600; }
   code { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; }
-  @media (max-width: 700px) { main { padding: 14px 12px 40px; } header { padding: 12px; } .g-row, .g-scale { grid-template-columns: 140px 1fr; } }
+  @media (max-width: 700px) { main { padding: 14px 12px 40px; } header { padding: 12px; } header p { flex-basis: 100%; order: 3; } .g-row, .g-scale { grid-template-columns: 140px 1fr; } }
 </style>
 </head>
 <body>
 <header>
+  <a class="home-link" href="https://qureshirauf.com/" title="Back to qureshirauf.com">← Home</a>
   <h1>Project Plan Builder</h1>
   <p>Enter the project, resources and tasks. Export a file that Microsoft Project opens with tasks, links and resources ready.</p>
-  <nav class="links"><a href="https://github.com/qrauf/project-plan-builder" target="_blank" rel="noopener">Source on GitHub</a> · <a href="https://qureshirauf.com/" target="_blank" rel="noopener">qureshirauf.com</a>
+  <nav class="links"><a href="https://github.com/qrauf/project-plan-builder" target="_blank" rel="noopener">Source on GitHub</a>
     <button id="supportBtn" class="support-btn" type="button">♥ Support · $2</button></nav>
 </header>
 
