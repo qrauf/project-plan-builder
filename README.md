@@ -21,7 +21,7 @@ Predecessors are typed straight into a field (`2`, `3SS`, `4FS+2`), successors a
 - **Templates:** standard project lifecycle (Initiation → Closure) and managed services transition (Mobilisation → Knowledge transfer → Go-live → Hypercare), or a blank plan.
 - **Predecessors in one field:** Finish-to-Start, Start-to-Start, Finish-to-Finish and Start-to-Finish links with lag or lead in days or weeks.
 - **Automatic successors:** filled in as you type predecessors, and links stay correct when rows are moved.
-- **Phases:** indent and outdent tasks to create summary tasks.
+- **Sub-tasks and phases:** click **+ Sub-task** on any row to add a task under it (the row becomes a phase and hands its resource, links and leave to the first sub-task), or indent and outdent rows.
 - **Milestones:** tick a box for zero-day checkpoints.
 - **Project start date:** pick a date and the whole plan moves to it, keeping durations and links.
 - **Target end date:** warns if the plan runs late and shows a deadline line on the timeline.

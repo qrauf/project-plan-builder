@@ -79,7 +79,8 @@
   .muted { color: var(--muted); font-weight: 400; font-size: 12px; }
   .chip.leave { background: color-mix(in srgb, var(--warn) 12%, var(--surface)); color: var(--warn); }
   .g-leave { position: absolute; top: 3px; bottom: 3px; background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--warn) 35%, transparent) 0 3px, transparent 3px 6px); border-radius: 3px; pointer-events: auto; }
-  td.act { white-space: nowrap; width: 150px; }
+  td.act { white-space: nowrap; width: 230px; }
+  button.icon.sub { font-size: 12px; color: var(--accent); }
   .indent { display: inline-block; }
   .msgs { margin-top: 12px; display: grid; gap: 4px; }
   .msg { font-size: 13px; padding: 6px 10px; border-radius: 8px; }
@@ -198,7 +199,7 @@
         <br><code>3</code> = task 3 must finish before this starts (Finish-to-Start)
         <br><code>3SS</code> = start together · <code>3FF</code> = finish together · <code>3SF</code> = start-to-finish
         <br><code>3FS+2</code> = 2 working days after task 3 finishes · <code>4SS+1w</code> = 1 week after task 4 starts · <code>5FS-1</code> = overlap by 1 day
-        <br>Successors fill in automatically. Use the ⇥ / ⇤ buttons to make phases (summary tasks).</p>
+        <br>Successors fill in automatically. Click <b>+ Sub-task</b> on a row to add a task under it (the row becomes a phase), or use ⇥ / ⇤ to indent and outdent.</p>
     </details>
   </section>
 
@@ -425,7 +426,23 @@
     save(); render();
     var inputs = document.querySelectorAll("td.name input"); if (inputs.length) inputs[inputs.length - 1].focus();
   }
+  function addSubTask(i) {
+    var t = state.tasks, parent = t[i], kidsOf = children(i), first = !kidsOf.length;
+    var at = first ? i + 1 : kidsOf[kidsOf.length - 1] + 1, sub = { uid: state.nextUid++, name: "", level: parent.level + 1, resource: "", milestone: false, preds: [], start: "", end: "" };
+    if (first) { // the parent becomes a phase: hand its own work (dates, resource, links, leave) to the first sub-task
+      sub.start = parent.start || fmt(baseStart()); sub.end = parent.milestone ? fmt(addWork(parse(sub.start), 4)) : (parent.end || fmt(addWork(parse(sub.start), 4)));
+      sub.resource = parent.resource; sub.preds = parent.preds || []; sub.leaveStart = parent.leaveStart; sub.leaveDays = parent.leaveDays;
+      parent.resource = ""; parent.preds = []; parent.milestone = false; parent.leaveStart = parent.leaveDays = "";
+    } else { // later sub-tasks start the working day after the last one ends
+      var last = t[at - 1], s = last.end ? addWork(parse(last.end), 1) : baseStart();
+      sub.start = fmt(s); sub.end = fmt(addWork(s, 4));
+    }
+    t.splice(at, 0, sub);
+    save(); render();
+    var inp = document.querySelector('tr[data-i="' + at + '"] td.name input'); if (inp) inp.focus();
+  }
   function act(i, what) {
+    if (what === "sub") { addSubTask(i); return; }
     var t = state.tasks;
     if (what === "del") { var uid = t[i].uid; t.splice(i, 1); t.forEach(function (x) { x.preds = (x.preds || []).filter(function (p) { return p.uid !== uid; }); }); }
     if (what === "up" && i > 0) { var a = t[i]; t[i] = t[i - 1]; t[i - 1] = a; }
@@ -532,7 +549,7 @@
         '<td class="ms">' + (sum ? "" : '<input type="checkbox" data-f="milestone"' + (t.milestone ? " checked" : "") + ' aria-label="Milestone">') + "</td>" +
         '<td class="leave">' + (sum ? "" : leaveCell(t)) + "</td>" +
         '<td class="cost" data-cost="' + i + '">' + costCell(i) + "</td>" +
-        '<td class="act"><button class="icon" data-a="out" title="Outdent">⇤</button> <button class="icon" data-a="in" title="Indent (make sub-task)">⇥</button> ' +
+        '<td class="act"><button class="icon sub" data-a="sub" title="Add a sub-task under this task">+ Sub-task</button> <button class="icon" data-a="out" title="Outdent">⇤</button> <button class="icon" data-a="in" title="Indent (make sub-task)">⇥</button> ' +
         '<button class="icon" data-a="up" title="Move up">↑</button> <button class="icon" data-a="down" title="Move down">↓</button> <button class="icon" data-a="del" title="Delete">✕</button></td></tr>';
     });
     body.innerHTML = html || '<tr><td colspan="12" class="hint" style="padding:16px">No tasks yet. Load a template or click “+ Add task”.</td></tr>';
